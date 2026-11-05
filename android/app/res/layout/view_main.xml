@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/bg" android:orientation="vertical">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="54dp"
+        android:gravity="center_vertical" android:orientation="horizontal" android:paddingStart="16dp" android:paddingEnd="12dp">
+        <ImageView android:layout_width="30dp" android:layout_height="30dp"
+            android:src="@mipmap/ic_launcher" android:contentDescription="@string/app_name" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="10dp" android:text="NSL " android:textColor="@color/text_hi"
+            android:textSize="20sp" android:textStyle="bold" android:fontFamily="sans-serif-black" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="TV" android:textColor="@color/sun" android:textSize="20sp"
+            android:textStyle="bold" android:fontFamily="sans-serif-black" />
+        <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+        <ImageView android:id="@+id/btnSearch" android:layout_width="40dp" android:layout_height="40dp"
+            android:layout_marginStart="6dp" android:padding="9dp" android:src="@drawable/ic_search"
+            android:contentDescription="@string/search_hint" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/searchRow" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp" android:layout_marginTop="2dp" android:layout_marginBottom="8dp"
+        android:background="@drawable/search_bg" android:visibility="gone" android:paddingStart="14dp" android:paddingEnd="6dp">
+        <EditText android:id="@+id/searchInput" android:layout_width="0dp" android:layout_height="42dp"
+            android:layout_weight="1" android:background="@null" android:hint="@string/search_hint"
+            android:textColorHint="@color/text_lo" android:textColor="@color/text_hi" android:textSize="14sp"
+            android:inputType="text" android:imeOptions="actionSearch" android:maxLines="1" />
+        <ImageView android:id="@+id/btnSearchClose" android:layout_width="38dp" android:layout_height="38dp"
+            android:padding="10dp" android:src="@drawable/ic_close" android:contentDescription="@string/search_hint" />
+    </LinearLayout>
+
+    <HorizontalScrollView android:id="@+id/chipsScroll" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:scrollbars="none" android:requiresFadingEdge="horizontal"
+        android:fadingEdgeLength="28dp" android:paddingStart="16dp" android:paddingEnd="16dp">
+        <LinearLayout android:id="@+id/chipsRow" android:layout_width="wrap_content"
+            android:layout_height="38dp" android:gravity="center_vertical" android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <GridView android:id="@+id/gridHome" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:paddingStart="10dp" android:paddingEnd="10dp" android:paddingTop="10dp" android:paddingBottom="16dp"
+            android:clipToPadding="false" android:numColumns="auto_fit" android:columnWidth="112dp"
+            android:horizontalSpacing="6dp" android:verticalSpacing="10dp" android:scrollbarStyle="outsideOverlay"
+            android:scrollbarThumbVertical="@drawable/scrollbar_thumb" android:scrollbarSize="3dp" android:cacheColorHint="#00000000"
+            android:listSelector="@android:color/transparent" />
+        <GridView android:id="@+id/gridFav" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:paddingStart="10dp" android:paddingEnd="10dp" android:paddingTop="10dp" android:paddingBottom="16dp"
+            android:clipToPadding="false" android:numColumns="auto_fit" android:columnWidth="112dp"
+            android:horizontalSpacing="6dp" android:verticalSpacing="10dp" android:scrollbarStyle="outsideOverlay"
+            android:scrollbarThumbVertical="@drawable/scrollbar_thumb" android:scrollbarSize="3dp" android:cacheColorHint="#00000000"
+            android:listSelector="@android:color/transparent" android:visibility="gone" />
+        <ListView android:id="@+id/listEvents" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="10dp" android:paddingBottom="16dp"
+            android:clipToPadding="false" android:divider="@drawable/divider" android:dividerHeight="1dp"
+            android:scrollbarStyle="outsideOverlay" android:scrollbarThumbVertical="@drawable/scrollbar_thumb"
+            android:scrollbarSize="3dp" android:cacheColorHint="#00000000" android:listSelector="@android:color/transparent"
+            android:visibility="gone" />
+        <ScrollView android:id="@+id/settingsView" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipToPadding="false" android:scrollbarStyle="outsideOverlay"
+            android:scrollbarThumbVertical="@drawable/scrollbar_thumb" android:scrollbarSize="3dp" android:visibility="gone"
+            android:padding="16dp" android:paddingBottom="24dp">
+            <LinearLayout android:id="@+id/settingsBox" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:orientation="vertical" />
+        </ScrollView>
+        <TextView android:id="@+id/emptyState" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:gravity="center" android:textColor="@color/text_lo"
+            android:textSize="13sp" android:visibility="gone" android:lineSpacingExtra="4dp" />
+    </FrameLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="58dp" android:background="@drawable/nav_bg"
+        android:orientation="horizontal" android:baselineAligned="false">
+        <LinearLayout android:id="@+id/navHome" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:id="@+id/navHomeIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_tv" />
+            <TextView android:id="@+id/navHomeText" style="@style/NavLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/tab_home" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/navEvents" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:id="@+id/navEventsIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_calendar" />
+            <TextView android:id="@+id/navEventsText" style="@style/NavLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/tab_events" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/navFav" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:id="@+id/navFavIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_heart_o" />
+            <TextView android:id="@+id/navFavText" style="@style/NavLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/tab_fav" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/navSettings" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:id="@+id/navSettingsIcon" android:layout_width="22dp" android:layout_height="22dp" android:src="@drawable/ic_settings" />
+            <TextView android:id="@+id/navSettingsText" style="@style/NavLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/tab_settings" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

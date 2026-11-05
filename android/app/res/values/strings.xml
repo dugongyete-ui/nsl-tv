@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NSL TV</string>
+    <string name="boot_checking">Memeriksa status server…</string>
+    <string name="boot_channels">Memperbarui daftar saluran siaran…</string>
+    <string name="boot_ready">Saluran siaran siap!</string>
+    <string name="search_hint">Cari saluran…</string>
+    <string name="tab_home">Beranda</string>
+    <string name="tab_events">Acara</string>
+    <string name="tab_fav">Favorit</string>
+    <string name="tab_settings">Setelan</string>
+</resources>

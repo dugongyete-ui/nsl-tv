@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FF070B1E</color>
+    <color name="bg_deep">#FF05081A</color>
+    <color name="surface">#FF111736</color>
+    <color name="surface_lo">#FF0D1230</color>
+    <color name="surface_hi">#FF1B2350</color>
+    <color name="stroke">#26FFFFFF</color>
+    <color name="text_hi">#FFF5F7FF</color>
+    <color name="text_mid">#FFB9C1E3</color>
+    <color name="text_lo">#FF7C85AD</color>
+    <color name="sun">#FFFFC93C</color>
+    <color name="sun_hi">#FFFFDA5C</color>
+    <color name="sun_ink">#FF231A00</color>
+    <color name="live">#FFFF4D5E</color>
+    <color name="mint">#FF34D399</color>
+    <color name="ic_launcher_bg">#FF0A0F33</color>
+</resources>
