@@ -1,0 +1,859 @@
+     1→package com.nsl.tv;
+     2→
+     3→import android.app.Activity;
+     4→import android.app.AlertDialog;
+     5→import android.graphics.Bitmap;
+     6→import android.graphics.BitmapFactory;
+     7→import android.graphics.Color;
+     8→import android.os.Bundle;
+     9→import android.os.Handler;
+    10→import android.os.Looper;
+    11→import android.view.Gravity;
+    12→import android.view.View;
+    13→import android.widget.EditText;
+    14→import android.widget.GridView;
+    15→import android.widget.ImageView;
+    16→import android.widget.LinearLayout;
+    17→import android.widget.ListView;
+    18→import android.widget.ScrollView;
+    19→import android.widget.Switch;
+    20→import android.widget.TextView;
+    21→import android.widget.Toast;
+    22→
+    23→import org.json.JSONObject;
+    24→
+    25→import java.text.SimpleDateFormat;
+    26→import java.util.ArrayList;
+    27→import java.util.Date;
+    28→import java.util.List;
+    29→import java.util.Locale;
+    30→import java.util.Set;
+    31→import java.util.concurrent.atomic.AtomicBoolean;
+    32→
+    33→/**
+    34→ * NSL TV — MainActivity.
+    35→ * Alur: boot (server → lisensi → saluran) → beranda/acara/favorit/setelan.
+    36→ */
+    37→public class MainActivity extends Activity {
+    38→
+    39→    private static final String MIN_AMOUNT_CARD = "5000";
+    40→
+    41→    private View bootView, mainView, activationView, blockedView;
+    42→    private TextView bootStatus, blockedMsg;
+    43→    private LinearLayout chipsRow, amountBox;
+    44→    private android.widget.HorizontalScrollView chipsScroll;
+    45→
+    46→    // main
+    47→    private GridView gridHome, gridFav;
+    48→    private ListView listEvents;
+    49→    private TextView chipTrial, emptyState;
+    50→    private View searchRow, settingsView;
+    51→    private LinearLayout settingsBox;
+    52→    private LinearLayout navHome, navEvents, navFav, navSettings;
+    53→    private ImageView navHomeIcon, navEventsIcon, navFavIcon, navSettingsIcon;
+    54→    private EditText searchInput;
+    55→
+    56→    private Adapters.ChannelAdapter homeAdapter, favAdapter;
+    57→    private Adapters.EventAdapter eventAdapter;
+    58→    private List<Models.Channel> homeItems = new ArrayList<>();
+    59→    private List<Models.Channel> eventItems = new ArrayList<>();
+    60→    private List<Models.Channel> favItems = new ArrayList<>();
+    61→
+    62→    private String category = "SEMUA";
+    63→    private String query = "";
+    64→    private int tab = 0; // 0 home, 1 events, 2 fav, 3 settings
+    65→
+    66→    // activation
+    67→    private Models.License license;
+    68→    private Models.Order order;
+    69→    private long chosenAmount = 0;
+    70→    private TextView orderAmount, orderStatus, orderExpiry, actDesc;
+    71→    private ImageView qrImage;
+    72→    private View orderCard;
+    73→    private android.widget.Button btnPay, btnCheckPaid, btnCancelOrder;
+    74→
+    75→    private final Handler ui = new Handler(Looper.getMainLooper());
+    76→    private final AtomicBoolean booted = new AtomicBoolean(false);
+    77→    private Runnable orderTicker;
+    78→    private Runnable eventTicker;
+    79→
+    80→    @Override
+    81→    protected void onCreate(Bundle savedInstanceState) {
+    82→        super.onCreate(savedInstanceState);
+    83→        Api.init(getApplicationContext());
+    84→        Store.init(getApplicationContext());
+    85→        setContentView(R.layout.activity_main);
+    86→
+    87→        bootView = findViewById(R.id.bootView);
+    88→        mainView = findViewById(R.id.mainView);
+    89→        activationView = findViewById(R.id.activationView);
+    90→        blockedView = findViewById(R.id.blockedView);
+    91→        bootStatus = findViewById(R.id.bootStatus);
+    92→        blockedMsg = findViewById(R.id.blockedMsg);
+    93→
+    94→        findViewById(R.id.btnRetryBlocked).setOnClickListener(v -> {
+    95→            blockedView.setVisibility(View.GONE);
+    96→            showOnly(bootView);
+    97→            boot();
+    98→        });
+    99→
+   100→        wireMain();
+   101→        wireActivation();
+   102→
+   103→        showOnly(bootView);
+   104→        boot();
+   105→    }
+   106→
+   107→    // =========================================================
+   108→    // BOOT
+   109→    // =========================================================
+   110→
+   111→    private void setBoot(String msg) {
+   112→        ui.post(() -> bootStatus.setText(msg));
+   113→    }
+   114→
+   115→    private void boot() {
+   116→        booted.set(false);
+   117→        new Thread(() -> {
+   118→            try {
+   119→                // telemetri (tanpa menunggu)
+   120→                new Thread(() -> {
+   121→                    try { Api.postPlain("/api/v1/devices/ping", Store.deviceId(MainActivity.this)); }
+   122→                    catch (Exception ignored) {}
+   123→                }).start();
+   124→
+   125→                // 1. lisensi
+   126→                setBoot(getString(R.string.boot_license));
+   127→                Models.License lic = fetchLicense();
+   128→                license = lic;
+   129→                if (!lic.allows()) {
+   130→                    ui.post(() -> showActivation());
+   131→                    return;
+   132→                }
+   133→
+   134→                // 2. saluran
+   135→                setBoot(getString(R.string.boot_channels));
+   136→                Data.parseChannels(Api.get("/api/v1/channels", Store.deviceId(this)));
+   137→
+   138→                setBoot(getString(R.string.boot_ready));
+   139→                ui.postDelayed(this::enterMain, 350);
+   140→            } catch (final Api.HttpException he) {
+   141→                if (he.body != null && he.body.contains("diblokir")) {
+   142→                    ui.post(() -> {
+   143→                        blockedMsg.setText("Perangkat ini telah diblokir oleh administrator server.\n\nHubungi penyedia layanan untuk bantuan.");
+   144→                        showOnly(blockedView);
+   145→                    });
+   146→                } else {
+   147→                    ui.post(() -> {
+   148→                        blockedMsg.setText("Gagal terhubung ke server.\n" + shortMsg(he.getMessage()));
+   149→                        showOnly(blockedView);
+   150→                    });
+   151→                }
+   152→            } catch (final Exception e) {
+   153→                ui.post(() -> {
+   154→                    blockedMsg.setText("Terjadi kesalahan.\n" + shortMsg(e.getMessage()));
+   155→                    showOnly(blockedView);
+   156→                });
+   157→            }
+   158→        }, "boot").start();
+   159→    }
+   160→
+   161→    private Models.License fetchLicense() throws Exception {
+   162→        Models.License lic = new Models.License();
+   163→        try {
+   164→            JSONObject o = new JSONObject(Api.get("/api/v1/license/status", Store.deviceId(this)));
+   165→            lic.enforced = o.optBoolean("enforced", false);
+   166→            lic.minDonation = o.optLong("minDonation", 5000L);
+   167→            lic.state = o.optString("state", "");
+   168→            lic.trialEndsAt = parseMillis(o.optString("trialEndsAt", ""));
+   169→        } catch (Api.HttpException he) {
+   170→            if (he.code == 403 && he.body != null && he.body.contains("diblokir")) throw he;
+   171→            lic.enforced = false; // bila endpoint lisensi bermasalah, jangan blokir
+   172→        }
+   173→        return lic;
+   174→    }
+   175→
+   176→    private void enterMain() {
+   177→        if (Data.CURRENT == null) return;
+   178→        booted.set(true);
+   179→        showOnly(mainView);
+   180→        rebuildChips();
+   181→        applyFilter();
+   182→        updateTrialChip();
+   183→        buildSettings();
+   184→        if (Store.autoPlayLast()) {
+   185→            String lastId = Store.lastChannelId();
+   186→            if (lastId != null && Data.byId(lastId) != null) {
+   187→                openPlayer(lastId);
+   188→            }
+   189→        }
+   190→    }
+   191→
+   192→    private void openPlayer(String channelId) {
+   193→        android.content.Intent it = new android.content.Intent(this, PlayerActivity.class);
+   194→        it.putExtra(PlayerActivity.EXTRA_CHANNEL_ID, channelId);
+   195→        startActivity(it);
+   196→    }
+   197→
+   198→    // =========================================================
+   199→    // MAIN UI
+   200→    // =========================================================
+   201→
+   202→    private void wireMain() {
+   203→        gridHome = findViewById(R.id.gridHome);
+   204→        gridFav = findViewById(R.id.gridFav);
+   205→        listEvents = findViewById(R.id.listEvents);
+   206→        chipTrial = findViewById(R.id.chipTrial);
+   207→        emptyState = findViewById(R.id.emptyState);
+   208→        searchRow = findViewById(R.id.searchRow);
+   209→        settingsView = findViewById(R.id.settingsView);
+   210→        settingsBox = findViewById(R.id.settingsBox);
+   211→        chipsRow = findViewById(R.id.chipsRow);
+   212→        chipsScroll = (android.widget.HorizontalScrollView) findViewById(R.id.chipsScroll);
+   213→        navHome = findViewById(R.id.navHome);
+   214→        navEvents = findViewById(R.id.navEvents);
+   215→        navFav = findViewById(R.id.navFav);
+   216→        navSettings = findViewById(R.id.navSettings);
+   217→        navHomeIcon = findViewById(R.id.navHomeIcon);
+   218→        navEventsIcon = findViewById(R.id.navEventsIcon);
+   219→        navFavIcon = findViewById(R.id.navFavIcon);
+   220→        navSettingsIcon = findViewById(R.id.navSettingsIcon);
+   221→        searchInput = findViewById(R.id.searchInput);
+   222→
+   223→        homeAdapter = new Adapters.ChannelAdapter(this, homeItems, Store.favorites(), this::toggleFav);
+   224→        gridHome.setAdapter(homeAdapter);
+   225→        favAdapter = new Adapters.ChannelAdapter(this, favItems, Store.favorites(), this::toggleFav);
+   226→        gridFav.setAdapter(favAdapter);
+   227→        eventAdapter = new Adapters.EventAdapter(this, eventItems);
+   228→        listEvents.setAdapter(eventAdapter);
+   229→
+   230→        android.widget.AdapterView.OnItemClickListener open = (parent, view, position, id) -> {
+   231→            Models.Channel ch = (Models.Channel) parent.getItemAtPosition(position);
+   232→            if (ch != null) openPlayer(ch.id);
+   233→        };
+   234→        gridHome.setOnItemClickListener(open);
+   235→        gridFav.setOnItemClickListener(open);
+   236→        listEvents.setOnItemClickListener(open);
+   237→
+   238→        navHome.setOnClickListener(v -> setTab(0));
+   239→        navEvents.setOnClickListener(v -> setTab(1));
+   240→        navFav.setOnClickListener(v -> setTab(2));
+   241→        navSettings.setOnClickListener(v -> setTab(3));
+   242→
+   243→        findViewById(R.id.btnSearch).setOnClickListener(v -> {
+   244→            boolean show = searchRow.getVisibility() != View.VISIBLE;
+   245→            searchRow.setVisibility(show ? View.VISIBLE : View.GONE);
+   246→            findViewById(R.id.chipsScroll).setVisibility(show ? View.GONE : View.VISIBLE);
+   247→            if (show) searchInput.requestFocus();
+   248→            else { searchInput.setText(""); }
+   249→        });
+   250→        findViewById(R.id.btnSearchClose).setOnClickListener(v -> {
+   251→            searchInput.setText("");
+   252→            searchRow.setVisibility(View.GONE);
+   253→            findViewById(R.id.chipsScroll).setVisibility(View.VISIBLE);
+   254→        });
+   255→        searchInput.addTextChangedListener(new PlayerActivity.SimpleTextWatcher() {
+   256→            @Override public void onText(String s) { query = s; applyFilter(); }
+   257→        });
+   258→    }
+   259→
+   260→    private void toggleFav(Models.Channel ch) {
+   261→        boolean now = !Store.isFavorite(ch.id);
+   262→        Store.setFavorite(ch.id, now);
+   263→        Set<String> favs = Store.favorites();
+   264→        homeAdapter.setData(homeItems, favs);
+   265→        favAdapter.setData(favItems, favs);
+   266→        Toast.makeText(this, now ? "Ditambahkan ke Favorit" : "Dihapus dari Favorit", Toast.LENGTH_SHORT).show();
+   267→        if (tab == 2) { favItems = Data.favorites(Data.CURRENT.channels, favs, query); favAdapter.setData(favItems, favs); }
+   268→        updateEmptyState();
+   269→    }
+   270→
+   271→    private void rebuildChips() {
+   272→        chipsRow.removeAllViews();
+   273→        List<String> cats = new ArrayList<>();
+   274→        cats.add("SEMUA");
+   275→        if (Data.CURRENT != null) cats.addAll(Data.CURRENT.categories);
+   276→        for (String c : cats) {
+   277→            TextView chip = new TextView(this);
+   278→            chip.setText(c.equals("SEMUA") ? "SEMUA" : c);
+   279→            chip.setTextSize(11.5f);
+   280→            chip.setTypeface(null, android.graphics.Typeface.BOLD);
+   281→            chip.setPadding(dp(14), dp(7), dp(14), dp(7));
+   282→            chip.setGravity(Gravity.CENTER);
+   283→            chip.setAllCaps(true);
+   284→            chip.setLetterSpacing(0.05f);
+   285→            chip.setOnClickListener(v -> {
+   286→                category = c.toString();
+   287→                styleChips();
+   288→                applyFilter();
+   289→            });
+   290→            chip.setTag(c);
+   291→            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+   292→                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+   293→            lp.rightMargin = dp(8);
+   294→            chipsRow.addView(chip, lp);
+   295→        }
+   296→        styleChips();
+   297→    }
+   298→
+   299→    private void styleChips() {
+   300→        for (int i = 0; i < chipsRow.getChildCount(); i++) {
+   301→            TextView chip = (TextView) chipsRow.getChildAt(i);
+   302→            boolean active = chip.getTag() != null && category.equals(chip.getTag().toString());
+   303→            chip.setBackgroundResource(active ? R.drawable.chip_active : R.drawable.chip_normal);
+   304→            chip.setTextColor(active ? getColor(R.color.sun_ink) : getColor(R.color.text_mid));
+   305→            if (active) chipsScroll.post(() -> chipsScroll.smoothScrollTo(chip.getLeft() - dp(40), 0));
+   306→        }
+   307→    }
+   308→
+   309→    private void applyFilter() {
+   310→        if (Data.CURRENT == null) return;
+   311→        Set<String> favs = Store.favorites();
+   312→        homeItems = Data.byCategory(Data.CURRENT.channels, category, query);
+   313→        favItems = Data.favorites(Data.CURRENT.channels, favs, query);
+   314→        eventItems = Data.events(Data.CURRENT.channels);
+   315→        homeAdapter.setData(homeItems, favs);
+   316→        favAdapter.setData(favItems, favs);
+   317→        eventAdapter.setData(eventItems);
+   318→        updateEmptyState();
+   319→    }
+   320→
+   321→    private void updateEmptyState() {
+   322→        boolean empty;
+   323→        if (tab == 0) empty = homeItems.isEmpty();
+   324→        else if (tab == 1) empty = eventItems.isEmpty();
+   325→        else if (tab == 2) empty = favItems.isEmpty();
+   326→        else empty = false;
+   327→        emptyState.setVisibility(empty ? View.VISIBLE : View.GONE);
+   328→        if (empty) {
+   329→            if (tab == 2) emptyState.setText("Belum ada favorit\nTekan ikon hati pada saluran");
+   330→            else if (tab == 1) emptyState.setText("Belum ada jadwal acara");
+   331→            else emptyState.setText("Saluran tidak ditemukan");
+   332→        }
+   333→    }
+   334→
+   335→    private void setTab(int t) {
+   336→        tab = t;
+   337→        gridHome.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
+   338→        listEvents.setVisibility(t == 1 ? View.VISIBLE : View.GONE);
+   339→        gridFav.setVisibility(t == 2 ? View.VISIBLE : View.GONE);
+   340→        settingsView.setVisibility(t == 3 ? View.VISIBLE : View.GONE);
+   341→        findViewById(R.id.chipsScroll).setVisibility(t == 0 && searchRow.getVisibility() != View.VISIBLE ? View.VISIBLE : View.GONE);
+   342→        styleNav();
+   343→        updateEmptyState();
+   344→        if (t == 1) startEventTicker(); else stopEventTicker();
+   345→        if (t == 2) {
+   346→            favItems = Data.favorites(Data.CURRENT.channels, Store.favorites(), query);
+   347→            favAdapter.setData(favItems, Store.favorites());
+   348→            updateEmptyState();
+   349→        }
+   350→    }
+   351→
+   352→    private void styleNav() {
+   353→        int active = getColor(R.color.sun);
+   354→        int idle = getColor(R.color.text_lo);
+   355→        navHomeIcon.setColorFilter(tab == 0 ? active : idle);
+   356→        navEventsIcon.setColorFilter(tab == 1 ? active : idle);
+   357→        navFavIcon.setImageResource(tab == 2 ? R.drawable.ic_heart : R.drawable.ic_heart_o);
+   358→        navFavIcon.setColorFilter(tab == 2 ? getColor(R.color.live) : idle);
+   359→        navSettingsIcon.setColorFilter(tab == 3 ? active : idle);
+   360→        navHomeText().setTextColor(tab == 0 ? active : idle);
+   361→        navEventsText().setTextColor(tab == 1 ? active : idle);
+   362→        navFavText().setTextColor(tab == 2 ? (tab == 2 ? getColor(R.color.live) : idle) : idle);
+   363→        navSettingsText().setTextColor(tab == 3 ? active : idle);
+   364→    }
+   365→
+   366→    private TextView navHomeText() { return findViewById(R.id.navHomeText); }
+   367→    private TextView navEventsText() { return findViewById(R.id.navEventsText); }
+   368→    private TextView navFavText() { return findViewById(R.id.navFavText); }
+   369→    private TextView navSettingsText() { return findViewById(R.id.navSettingsText); }
+   370→
+   371→    private void startEventTicker() {
+   372→        stopEventTicker();
+   373→        eventTicker = new Runnable() {
+   374→            @Override public void run() {
+   375→                if (tab == 1 && eventAdapter != null && listEvents.getVisibility() == View.VISIBLE) {
+   376→                    eventAdapter.notifyDataSetChanged();
+   377→                    ui.postDelayed(this, 1000);
+   378→                }
+   379→            }
+   380→        };
+   381→        ui.postDelayed(eventTicker, 1000);
+   382→    }
+   383→
+   384→    private void stopEventTicker() {
+   385→        if (eventTicker != null) { ui.removeCallbacks(eventTicker); eventTicker = null; }
+   386→    }
+   387→
+   388→    private void updateTrialChip() {
+   389→        if (license == null) return;
+   390→        if (!license.enforced) {
+   391→            chipTrial.setVisibility(View.GONE);
+   392→            return;
+   393→        }
+   394→        chipTrial.setVisibility(View.VISIBLE);
+   395→        if ("ACTIVE".equals(license.state)) {
+   396→            chipTrial.setText("PREMIUM AKTIF");
+   397→        } else if (license.trialEndsAt > 0) {
+   398→            long days = (license.trialEndsAt - System.currentTimeMillis()) / 86400000L;
+   399→            chipTrial.setText(String.format(Locale.US, "TRIAL • %d HARI", Math.max(0, days)));
+   400→        } else {
+   401→            chipTrial.setText("TRIAL");
+   402→        }
+   403→    }
+   404→
+   405→    // =========================================================
+   406→    // AKTIVASI (QRIS)
+   407→    // =========================================================
+   408→
+   409→    private void wireActivation() {
+   410→        amountBox = findViewById(R.id.amountBox);
+   411→        orderCard = findViewById(R.id.orderCard);
+   412→        qrImage = findViewById(R.id.qrImage);
+   413→        orderAmount = findViewById(R.id.orderAmount);
+   414→        orderStatus = findViewById(R.id.orderStatus);
+   415→        orderExpiry = findViewById(R.id.orderExpiry);
+   416→        actDesc = findViewById(R.id.actDesc);
+   417→        btnPay = findViewById(R.id.btnPay);
+   418→        btnCheckPaid = findViewById(R.id.btnCheckPaid);
+   419→        btnCancelOrder = findViewById(R.id.btnCancelOrder);
+   420→
+   421→        btnPay.setOnClickListener(v -> {
+   422→            if (chosenAmount <= 0) {
+   423→                Toast.makeText(this, "Pilih nominal aktivasi dulu", Toast.LENGTH_SHORT).show();
+   424→                return;
+   425→            }
+   426→            btnPay.setEnabled(false);
+   427→            btnPay.setText("Membuat kode QRIS…");
+   428→            new Thread(() -> {
+   429→                try {
+   430→                    JSONObject body = new JSONObject();
+   431→                    body.put("amount", chosenAmount);
+   432→                    JSONObject resp = new JSONObject(Api.post("/api/v1/license/orders", Store.deviceId(this), body.toString()));
+   433→                    JSONObject o = resp.optJSONObject("order");
+   434→                    if (o == null) throw new Exception(resp.optString("message", "Gagal membuat pesanan"));
+   435→                    order = new Models.Order();
+   436→                    order.orderId = o.optString("orderId", "");
+   437→                    order.status = o.optString("status", "PENDING");
+   438→                    order.amount = o.optLong("amount", chosenAmount);
+   439→                    order.finalAmount = o.optLong("finalAmount", chosenAmount);
+   440→                    order.qrImage = o.optString("qrImage", "");
+   441→                    order.expiresAt = parseMillis(o.optString("expiresAt", ""));
+   442→                    ui.post(this::showOrder);
+   443→                } catch (final Exception e) {
+   444→                    ui.post(() -> {
+   445→                        btnPay.setEnabled(true);
+   446→                        btnPay.setText("Lanjut Pembayaran QRIS");
+   447→                        Toast.makeText(this, shortMsg(e.getMessage()), Toast.LENGTH_LONG).show();
+   448→                    });
+   449→                }
+   450→            }, "order").start();
+   451→        });
+   452→
+   453→        btnCheckPaid.setOnClickListener(v -> pollOrderOnce());
+   454→        btnCancelOrder.setOnClickListener(v -> cancelOrder());
+   455→    }
+   456→
+   457→    private void showActivation() {
+   458→        license = license != null ? license : new Models.License();
+   459→        chosenAmount = 0;
+   460→        showOnly(activationView);
+   461→        actDesc.setText("Masa uji coba perangkat ini sudah berakhir.\nPilih nominal donasi untuk mengaktifkan kembali NSL TV.");
+   462→
+   463→        long min = Math.max(1000L, license.minDonation > 0 ? license.minDonation : 5000L);
+   464→        long[] presets = {min, min * 2, min * 4, min * 10};
+   465→        amountBox.removeAllViews();
+   466→        LinearLayout row = null;
+   467→        for (int i = 0; i < presets.length; i++) {
+   468→            if (i % 2 == 0) {
+   469→                row = new LinearLayout(this);
+   470→                row.setOrientation(LinearLayout.HORIZONTAL);
+   471→                row.setGravity(Gravity.CENTER);
+   472→                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+   473→                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+   474→                rlp.topMargin = dp(8);
+   475→                amountBox.addView(row, rlp);
+   476→            }
+   477→            final long amount = presets[i];
+   478→            TextView chip = new TextView(this);
+   479→            chip.setText(rupiah(amount));
+   480→            chip.setTextSize(14f);
+   481→            chip.setTypeface(null, android.graphics.Typeface.BOLD);
+   482→            chip.setGravity(Gravity.CENTER);
+   483→            chip.setPadding(dp(10), dp(12), dp(10), dp(12));
+   484→            chip.setBackgroundResource(R.drawable.chip_normal);
+   485→            chip.setTextColor(getColor(R.color.text_mid));
+   486→            chip.setOnClickListener(v -> {
+   487→                chosenAmount = amount;
+   488→                for (int j = 0; j < amountBox.getChildCount(); j++) {
+   489→                    LinearLayout r = (LinearLayout) amountBox.getChildAt(j);
+   490→                    for (int k = 0; k < r.getChildCount(); k++) {
+   491→                        TextView c = (TextView) r.getChildAt(k);
+   492→                        c.setBackgroundResource(R.drawable.chip_normal);
+   493→                        c.setTextColor(getColor(R.color.text_mid));
+   494→                    }
+   495→                }
+   496→                chip.setBackgroundResource(R.drawable.chip_active);
+   497→                chip.setTextColor(getColor(R.color.sun_ink));
+   498→            });
+   499→            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+   500→            lp.rightMargin = dp(8);
+   501→            if (row != null) row.addView(chip, lp);
+   502→        }
+   503→
+   504→        orderCard.setVisibility(View.GONE);
+   505→        btnCheckPaid.setVisibility(View.GONE);
+   506→        btnCancelOrder.setVisibility(View.GONE);
+   507→        btnPay.setVisibility(View.VISIBLE);
+   508→        btnPay.setEnabled(true);
+   509→        btnPay.setText("Lanjut Pembayaran QRIS");
+   510→    }
+   511→
+   512→    private void showOrder() {
+   513→        btnPay.setEnabled(true);
+   514→        btnPay.setVisibility(View.GONE);
+   515→        btnCheckPaid.setVisibility(View.VISIBLE);
+   516→        btnCancelOrder.setVisibility(View.VISIBLE);
+   517→        orderCard.setVisibility(View.VISIBLE);
+   518→        orderAmount.setText(rupiah(order.finalAmount));
+   519→        orderStatus.setText("Menunggu pembayaran…");
+   520→        Bitmap bmp = decodeQr(order.qrImage);
+   521→        if (bmp != null) qrImage.setImageBitmap(bmp);
+   522→        else qrImage.setImageDrawable(null);
+   523→        startOrderTicker();
+   524→    }
+   525→
+   526→    private Bitmap decodeQr(String dataUrl) {
+   527→        try {
+   528→            if (dataUrl == null) return null;
+   529→            String b64 = dataUrl.contains(",") ? dataUrl.substring(dataUrl.indexOf(',') + 1) : dataUrl;
+   530→            byte[] raw = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
+   531→            return BitmapFactory.decodeByteArray(raw, 0, raw.length);
+   532→        } catch (Exception e) {
+   533→            return null;
+   534→        }
+   535→    }
+   536→
+   537→    private void startOrderTicker() {
+   538→        stopOrderTicker();
+   539→        orderTicker = new Runnable() {
+   540→            @Override public void run() {
+   541→                if (activationView.getVisibility() != View.VISIBLE || order == null) return;
+   542→                long remain = order.expiresAt - System.currentTimeMillis();
+   543→                if (remain > 0) {
+   544→                    orderExpiry.setText("Berlaku " + PlayerActivity.fmtDur(remain));
+   545→                } else {
+   546→                    orderExpiry.setText("Kode kedaluwarsa");
+   547→                }
+   548→                ui.postDelayed(this, 1000);
+   549→            }
+   550→        };
+   551→        ui.post(orderTicker);
+   552→        pollOrderLoop();
+   553→    }
+   554→
+   555→    private void stopOrderTicker() {
+   556→        if (orderTicker != null) { ui.removeCallbacks(orderTicker); orderTicker = null; }
+   557→    }
+   558→
+   559→    private void pollOrderLoop() {
+   560→        new Thread(() -> {
+   561→            int tries = 0;
+   562→            while (tries < 480 && order != null && activationView.getVisibility() == View.VISIBLE) {
+   563→                try {
+   564→                    Thread.sleep(2500);
+   565→                    if (order == null || activationView.getVisibility() != View.VISIBLE) return;
+   566→                    Models.Order updated = fetchOrder(order.orderId);
+   567→                    if (updated != null) {
+   568→                        order = updated;
+   569→                        ui.post(() -> {
+   570→                            if ("PAID".equalsIgnoreCase(order.status)) {
+   571→                                orderStatus.setText("Pembayaran diterima ✓ Mengaktifkan…");
+   572→                                stopOrderTicker();
+   573→                                waitActivation();
+   574→                            } else {
+   575→                                orderStatus.setText("Menunggu pembayaran…");
+   576→                            }
+   577→                        });
+   578→                        if (updated.status != null && "PAID".equalsIgnoreCase(updated.status)) return;
+   579→                    }
+   580→                } catch (InterruptedException ie) {
+   581→                    return;
+   582→                } catch (Exception ignored) {
+   583→                }
+   584→                tries++;
+   585→            }
+   586→        }, "poll-order").start();
+   587→    }
+   588→
+   589→    private void pollOrderOnce() {
+   590→        if (order == null) return;
+   591→        btnCheckPaid.setEnabled(false);
+   592→        btnCheckPaid.setText("Memeriksa…");
+   593→        new Thread(() -> {
+   594→            try {
+   595→                Models.Order updated = fetchOrder(order.orderId);
+   596→                if (updated != null) order = updated;
+   597→                ui.post(() -> {
+   598→                    btnCheckPaid.setEnabled(true);
+   599→                    btnCheckPaid.setText("Sudah Bayar — Cek Status");
+   600→                    if (order != null && "PAID".equalsIgnoreCase(order.status)) {
+   601→                        orderStatus.setText("Pembayaran diterima ✓ Mengaktifkan…");
+   602→                        waitActivation();
+   603→                    } else {
+   604→                        Toast.makeText(this, "Belum ada pembayaran terdeteksi", Toast.LENGTH_SHORT).show();
+   605→                    }
+   606→                });
+   607→            } catch (final Exception e) {
+   608→                ui.post(() -> {
+   609→                    btnCheckPaid.setEnabled(true);
+   610→                    btnCheckPaid.setText("Sudah Bayar — Cek Status");
+   611→                    Toast.makeText(this, shortMsg(e.getMessage()), Toast.LENGTH_SHORT).show();
+   612→                });
+   613→            }
+   614→        }, "check-paid").start();
+   615→    }
+   616→
+   617→    private void waitActivation() {
+   618→        new Thread(() -> {
+   619→            int tries = 0;
+   620→            boolean active = false;
+   621→            while (tries < 15) {
+   622→                try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
+   623→                try {
+   624→                    Models.License lic = fetchLicense();
+   625→                    license = lic;
+   626→                    if (lic.allows()) { active = true; break; }
+   627→                } catch (Exception ignored) {}
+   628→                tries++;
+   629→            }
+   630→            final boolean ok = active;
+   631→            ui.post(() -> {
+   632→                stopOrderTicker();
+   633→                if (ok) {
+   634→                    Toast.makeText(this, "Aktivasi berhasil! Terima kasih", Toast.LENGTH_LONG).show();
+   635→                    boot();
+   636→                } else {
+   637→                    Toast.makeText(this, "Pembayaran diproses, coba cek lagi sesaat lagi", Toast.LENGTH_LONG).show();
+   638→                }
+   639→            });
+   640→        }, "wait-act").start();
+   641→    }
+   642→
+   643→    private void cancelOrder() {
+   644→        if (order == null) return;
+   645→        new Thread(() -> {
+   646→            try {
+   647→                Api.post("/api/v1/license/orders/" + order.orderId + "/cancel", Store.deviceId(this), "");
+   648→            } catch (Exception ignored) {}
+   649→            Models.Order cur = currentOrder();
+   650→            ui.post(() -> {
+   651→                order = null;
+   652→                stopOrderTicker();
+   653→                showActivation();
+   654→            });
+   655→        }, "cancel").start();
+   656→    }
+   657→
+   658→    private Models.Order currentOrder() {
+   659→        try {
+   660→            return fetchOrderCurrent();
+   661→        } catch (Exception e) {
+   662→            return null;
+   663→        }
+   664→    }
+   665→
+   666→    private Models.Order fetchOrder(String id) throws Exception {
+   667→        JSONObject resp = new JSONObject(Api.get("/api/v1/license/orders/" + id, Store.deviceId(this)));
+   668→        JSONObject o = resp.optJSONObject("order");
+   669→        if (o == null) return null;
+   670→        Models.Order od = new Models.Order();
+   671→        od.orderId = o.optString("orderId", id);
+   672→        od.status = o.optString("status", "");
+   673→        od.amount = o.optLong("amount", 0);
+   674→        od.finalAmount = o.optLong("finalAmount", od.amount);
+   675→        od.qrImage = o.optString("qrImage", "");
+   676→        od.expiresAt = parseMillis(o.optString("expiresAt", ""));
+   677→        return od;
+   678→    }
+   679→
+   680→    private Models.Order fetchOrderCurrent() throws Exception {
+   681→        JSONObject resp = new JSONObject(Api.get("/api/v1/license/orders/current", Store.deviceId(this)));
+   682→        JSONObject o = resp.optJSONObject("order");
+   683→        if (o == null) return null;
+   684→        Models.Order od = new Models.Order();
+   685→        od.orderId = o.optString("orderId", "");
+   686→        od.status = o.optString("status", "");
+   687→        od.amount = o.optLong("amount", 0);
+   688→        od.finalAmount = o.optLong("finalAmount", od.amount);
+   689→        od.qrImage = o.optString("qrImage", "");
+   690→        od.expiresAt = parseMillis(o.optString("expiresAt", ""));
+   691→        return od;
+   692→    }
+   693→
+   694→    // =========================================================
+   695→    // SETELAN
+   696→    // =========================================================
+   697→
+   698→    private void buildSettings() {
+   699→        settingsBox.removeAllViews();
+   700→        SimpleDateFormat df = new SimpleDateFormat("dd MMM yyyy", new Locale("id", "ID"));
+   701→
+   702→        // Kartu lisensi
+   703→        LinearLayout card = new LinearLayout(this);
+   704→        card.setOrientation(LinearLayout.VERTICAL);
+   705→        card.setBackgroundResource(R.drawable.card_soft);
+   706→        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+   707→        card.addView(label("LISENSI", 10, R.color.text_lo, true));
+   708→        String state;
+   709→        if (license == null || !license.enforced) state = "Gratis (tanpa penegakan)";
+   710→        else if ("ACTIVE".equals(license.state)) state = "PREMIUM AKTIF";
+   711→        else if ("TRIAL".equals(license.state)) {
+   712→            String until = license.trialEndsAt > 0 ? " • s.d. " + df.format(new Date(license.trialEndsAt)) : "";
+   713→            state = "UJI COBA" + until;
+   714→        } else state = license.state;
+   715→        card.addView(label(state, 14, R.color.sun, true));
+   716→
+   717→        View gap = new View(this);
+   718→        gap.setBackgroundResource(R.drawable.divider);
+   719→        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+   720→        glp.topMargin = dp(10);
+   721→        glp.bottomMargin = dp(10);
+   722→        card.addView(gap, glp);
+   723→
+   724→        card.addView(label("Perangkat", 11, R.color.text_lo, false));
+   725→        card.addView(label(Api.deviceModel() + " • " + Api.deviceType(), 12.5f, R.color.text_hi, false));
+   726→        card.addView(label("ID: " + Store.deviceId(this), 11, R.color.text_lo, false));
+   727→
+   728→        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+   729→                LinearLayout.LayoutParams.WRAP_CONTENT);
+   730→        clp.bottomMargin = dp(10);
+   731→        settingsBox.addView(card, clp);
+   732→
+   733→        // Baris switch
+   734→        LinearLayout rowSwitch = new LinearLayout(this);
+   735→        rowSwitch.setOrientation(LinearLayout.HORIZONTAL);
+   736→        rowSwitch.setGravity(Gravity.CENTER_VERTICAL);
+   737→        rowSwitch.setBackgroundResource(R.drawable.card_soft);
+   738→        rowSwitch.setPadding(dp(16), dp(6), dp(12), dp(6));
+   739→        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+   740→                LinearLayout.LayoutParams.WRAP_CONTENT);
+   741→        slp.bottomMargin = dp(10);
+   742→        LinearLayout colTxt = new LinearLayout(this);
+   743→        colTxt.setOrientation(LinearLayout.VERTICAL);
+   744→        TextView t1 = label("Lanjutkan saluran terakhir", 13.5f, R.color.text_hi, true);
+   745→        TextView t2 = label("Otomatis membuka saluran yang terakhir ditonton", 10.5f, R.color.text_lo, false);
+   746→        colTxt.addView(t1);
+   747→        colTxt.addView(t2);
+   748→        rowSwitch.addView(colTxt, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+   749→        Switch sw = new Switch(this);
+   750→        sw.setChecked(Store.autoPlayLast());
+   751→        sw.setOnCheckedChangeListener((b, v) -> Store.setAutoPlayLast(v));
+   752→        rowSwitch.addView(sw);
+   753→        settingsBox.addView(rowSwitch, slp);
+   754→
+   755→        // Tombol aksi
+   756→        settingsBox.addView(ghostButton("Segarkan Daftar Saluran", v -> {
+   757→            showOnly(bootView);
+   758→            boot();
+   759→        }), clp2());
+   760→
+   761→        settingsBox.addView(ghostButton("Hapus Semua Favorit", v -> {
+   762→            new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+   763→                    .setTitle("Hapus favorit?")
+   764→                    .setMessage("Semua saluran favorit akan dihapus.")
+   765→                    .setPositiveButton("Hapus", (d, w) -> {
+   766→                        Store.clearFavorites();
+   767→                        applyFilter();
+   768→                        Toast.makeText(this, "Favorit dikosongkan", Toast.LENGTH_SHORT).show();
+   769→                    })
+   770→                    .setNegativeButton("Batal", null)
+   771→                    .show();
+   772→        }), clp2());
+   773→
+   774→        TextView ver = label("NSL TV v1.0.0", 11, R.color.text_lo, false);
+   775→        ver.setGravity(Gravity.CENTER);
+   776→        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+   777→                LinearLayout.LayoutParams.WRAP_CONTENT);
+   778→        vlp.topMargin = dp(16);
+   779→        settingsBox.addView(ver, vlp);
+   780→    }
+   781→
+   782→    private LinearLayout.LayoutParams clp2() {
+   783→        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+   784→                LinearLayout.LayoutParams.WRAP_CONTENT);
+   785→        lp.bottomMargin = dp(10);
+   786→        return lp;
+   787→    }
+   788→
+   789→    private android.widget.Button ghostButton(String text, View.OnClickListener onClick) {
+   790→        android.widget.Button b = new android.widget.Button(this);
+   791→        b.setText(text);
+   792→        b.setAllCaps(false);
+   793→        b.setTextSize(13.5f);
+   794→        b.setTypeface(null, android.graphics.Typeface.BOLD);
+   795→        b.setTextColor(getColor(R.color.text_hi));
+   796→        b.setBackgroundResource(R.drawable.btn_ghost);
+   797→        b.setElevation(0);
+   798→        b.setStateListAnimator(null);
+   799→        b.setOnClickListener(onClick);
+   800→        return b;
+   801→    }
+   802→
+   803→    private TextView label(String text, float sizeSp, int colorRes, boolean bold) {
+   804→        TextView t = new TextView(this);
+   805→        t.setText(text);
+   806→        t.setTextSize(sizeSp);
+   807→        t.setTextColor(getColor(colorRes));
+   808→        if (bold) t.setTypeface(null, android.graphics.Typeface.BOLD);
+   809→        return t;
+   810→    }
+   811→
+   812→    // =========================================================
+   813→    // UTIL
+   814→    // =========================================================
+   815→
+   816→    private void showOnly(View v) {
+   817→        bootView.setVisibility(v == bootView ? View.VISIBLE : View.GONE);
+   818→        mainView.setVisibility(v == mainView ? View.VISIBLE : View.GONE);
+   819→        activationView.setVisibility(v == activationView ? View.VISIBLE : View.GONE);
+   820→        blockedView.setVisibility(v == blockedView ? View.VISIBLE : View.GONE);
+   821→    }
+   822→
+   823→    private static String shortMsg(String m) {
+   824→        if (m == null || m.trim().isEmpty()) return "Tidak diketahui";
+   825→        return m.length() > 160 ? m.substring(0, 160) + "…" : m;
+   826→    }
+   827→
+   828→    private static String rupiah(long amount) {
+   829→        return String.format(Locale.US, "Rp %,d", amount).replace(',', '.');
+   830→    }
+   831→
+   832→    private static long parseMillis(String iso) {
+   833→        if (iso == null || iso.isEmpty()) return 0L;
+   834→        try {
+   835→            if (iso.length() >= 10) {
+   836→                SimpleDateFormat isoF = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US);
+   837→                java.util.Date d = isoF.parse(iso.substring(0, Math.min(19, iso.length())));
+   838→                if (d != null) return d.getTime();
+   839→            }
+   840→            return Long.parseLong(iso);
+   841→        } catch (Exception e) {
+   842→            return 0L;
+   843→        }
+   844→    }
+   845→
+   846→    private int dp(int v) {
+   847→        return Math.round(v * getResources().getDisplayMetrics().density);
+   848→    }
+   849→
+   850→    @Override
+   851→    protected void onDestroy() {
+   852→        super.onDestroy();
+   853→        stopOrderTicker();
+   854→        stopEventTicker();
+   855→        ui.removeCallbacksAndMessages(null);
+   856→    }
+   857→
+   858→}
+   859→

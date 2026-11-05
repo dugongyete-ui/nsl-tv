@@ -1,24 +1,32 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Download, ShieldCheck, Tv, Trophy, KeyRound, PictureInPicture2, Smartphone, PackageCheck, Cpu } from 'lucide-react';
+import { Download, ShieldCheck, Tv, Trophy, KeyRound, PictureInPicture2, Smartphone, PackageCheck, Cpu, Infinity as InfinityIcon, Wrench } from 'lucide-react';
 
 const features = [
   { icon: Tv, title: '200+ Saluran', desc: 'Nasional, sports, film, kids & event live dalam satu aplikasi.' },
-  { icon: Trophy, title: 'Jadwal Pertandingan', desc: 'Tab Acara dengan hitung mundur kick-off & badge LIVE otomatis.' },
+  { icon: InfinityIcon, title: 'Tanpa Trial — Unlimited', desc: 'Tidak ada lisensi, masa uji, atau pembayaran. Akses penuh selamanya.' },
   { icon: KeyRound, title: 'DRM Widevine + ClearKey', desc: 'Mesin putar Media3 dengan multi-sumber fallback otomatis.' },
   { icon: PictureInPicture2, title: 'Picture-in-Picture', desc: 'Tonton sambil buka aplikasi lain, mode TV-ready (D-pad).' },
+];
+
+const fixes = [
+  { title: 'Tanpa lisensi/trial', desc: 'Sistem trial & aktivasi QRIS dihapus total. Setelan kini menampilkan status "Penuh • Tanpa Batas".' },
+  { title: 'ClearKey format hex diperbaiki', desc: 'Kunci DRM "kid:key" (dipakai ±170 saluran) kini dikenali & dikonversi otomatis — stream MPD terenkripsi jalan.' },
+  { title: 'ClearKey manifest Widevine diperbaiki', desc: 'Saluran/event dengan manifest ber-PSSH Widevine kini bisa dipakai ClearKey via sintesis PSSH common.' },
+  { title: 'Fallback sumber lebih cepat', desc: 'Sumber mati langsung dilompati (1 retry) tanpa buffering panjang, langsung ke sumber berikutnya.' },
+  { title: 'Telemetri dihapus', desc: 'Aplikasi tidak lagi mengirim ping/telemetri ke mana pun. Hanya memuat daftar saluran & stream.' },
 ];
 
 const specs = [
   { icon: PackageCheck, label: 'Ukuran', value: '3.0 MB' },
   { icon: Smartphone, label: 'Android', value: '6.0+ (HP & TV)' },
   { icon: Cpu, label: 'Arsitektur', value: 'Universal' },
-  { icon: ShieldCheck, label: 'Rilis', value: 'Signed v1.0.0' },
+  { icon: ShieldCheck, label: 'Rilis', value: 'Signed v1.0.1' },
 ];
 
 const steps = [
-  { n: '1', t: 'Unduh APK', d: 'Tekan tombol unduh di atas untuk mengunduh NSL-TV-v1.0.0-release.apk.' },
+  { n: '1', t: 'Unduh APK', d: 'Tekan tombol unduh di atas untuk mengunduh NSL-TV-v1.0.1-release.apk.' },
   { n: '2', t: 'Izinkan Instalasi', d: 'Saat diminta, izinkan "Instal aplikasi tidak dikenal" untuk browser Anda.' },
   { n: '3', t: 'Instal & Nikmati', d: 'Buka file APK, tekan Instal, lalu masuk daftar saluran langsung tersaji.' },
 ];
@@ -55,21 +63,43 @@ export default function Home() {
           <p className="mt-2 text-sm text-[#8A93B8]">Live Streaming Indonesia — ringan, halus, tanpa iklan.</p>
 
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            <span className="rounded-full border border-[#FFC93C]/40 bg-[#FFC93C]/10 px-3 py-1 text-[11px] font-bold tracking-wider text-[#FFC93C]">v1.0.0 RILIS</span>
+            <span className="rounded-full border border-[#FFC93C]/40 bg-[#FFC93C]/10 px-3 py-1 text-[11px] font-bold tracking-wider text-[#FFC93C]">v1.0.1 RILIS</span>
+            <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">TANPA TRIAL</span>
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-[#B9C1E3]">3.0 MB</span>
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-[#B9C1E3]">Android 6.0+</span>
-            <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">HP &amp; Android TV</span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-[#B9C1E3]">HP &amp; Android TV</span>
           </div>
 
           <a
-            href="/nsl/NSL-TV-v1.0.0-release.apk"
+            href="/nsl/NSL-TV-v1.0.1-release.apk"
             download
             className="group mt-8 inline-flex min-h-[52px] items-center gap-3 rounded-2xl bg-[#FFC93C] px-8 text-base font-extrabold text-[#231A00] shadow-lg shadow-[#FFC93C]/25 transition-all duration-200 hover:bg-[#FFDA5C] hover:shadow-[#FFC93C]/40 active:scale-[0.97]"
           >
             <Download className="h-5 w-5 transition-transform duration-200 group-hover:translate-y-0.5" />
             Unduh APK NSL TV
           </a>
-          <p className="mt-3 text-xs text-[#7C85AD]">NSL-TV-v1.0.0-release.apk • signed release build</p>
+          <p className="mt-3 text-xs text-[#7C85AD]">NSL-TV-v1.0.1-release.apk • signed release build</p>
+        </motion.section>
+
+        {/* Changelog */}
+        <motion.section
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="mt-10"
+        >
+          <h2 className="flex items-center gap-2 text-lg font-extrabold">
+            <Wrench className="h-4 w-4 text-[#FFC93C]" />
+            Yang Diperbaiki di v1.0.1
+          </h2>
+          <div className="mt-5 space-y-3">
+            {fixes.map((f) => (
+              <div key={f.title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:p-5 transition-colors duration-200 hover:bg-white/[0.07]">
+                <h3 className="text-[14px] font-bold text-[#FFC93C]">{f.title}</h3>
+                <p className="mt-1 text-[13px] leading-relaxed text-[#8A93B8]">{f.desc}</p>
+              </div>
+            ))}
+          </div>
         </motion.section>
 
         {/* Features */}
@@ -129,7 +159,7 @@ export default function Home() {
       </main>
 
       <footer className="relative mt-auto border-t border-white/5 py-6 text-center">
-        <p className="text-xs text-[#7C85AD]">NSL TV v1.0.0 • Build rilis bertanda tangan • Butuh Android 6.0 (API 23) atau lebih baru</p>
+        <p className="text-xs text-[#7C85AD]">NSL TV v1.0.1 • Build rilis bertanda tangan • Butuh Android 6.0 (API 23) atau lebih baru</p>
       </footer>
     </div>
   );
