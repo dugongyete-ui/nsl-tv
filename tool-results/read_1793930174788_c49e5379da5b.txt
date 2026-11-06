@@ -1,0 +1,609 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+     4→     4→import {
+     5→     5→  Tv, Search, Download, RefreshCw, Play, CircleAlert, CircleCheck, CircleDashed,
+     6→     6→  Radio, Satellite, Activity, Menu, X, ShieldCheck, Layers, MonitorPlay,
+     7→     7→} from 'lucide-react';
+     8→     8→
+     9→     9→// ============================================================
+    10→    10→// Tipe data upstream
+    11→    11→// ============================================================
+    12→    12→interface TSource {
+    13→    13→  url: string;
+    14→    14→  manifestType?: string;
+    15→    15→  headers?: Record<string, string> | null;
+    16→    16→  drmConfig?: {
+    17→    17→    type?: string;
+    18→    18→    licenseKey?: string;
+    19→    19→    licenseUrl?: string | null;
+    20→    20→    headers?: Record<string, string> | null;
+    21→    21→  } | null;
+    22→    22→  resolutionLabel?: string;
+    23→    23→}
+    24→    24→interface TChannel {
+    25→    25→  id: string;
+    26→    26→  name: string;
+    27→    27→  logoUrl?: string;
+    28→    28→  groupTitle: string;
+    29→    29→  order?: number;
+    30→    30→  sources: TSource[];
+    31→    31→}
+    32→    32→interface CheckStep {
+    33→    33→  label: string;
+    34→    34→  url: string;
+    35→    35→  status: number | null;
+    36→    36→  note?: string;
+    37→    37→  ok?: boolean;
+    38→    38→}
+    39→    39→interface CheckResult {
+    40→    40→  ok: boolean;
+    41→    41→  steps: CheckStep[];
+    42→    42→  verdict?: string;
+    43→    43→}
+    44→    44→interface LogLine { t: string; msg: string; kind: 'info' | 'ok' | 'warn' | 'err' }
+    45→    45→
+    46→    46→// ============================================================
+    47→    47→// Util
+    48→    48→// ============================================================
+    49→    49→function b64urlEncode(str: string): string {
+    50→    50→  const bytes = new TextEncoder().encode(str);
+    51→    51→  let bin = '';
+    52→    52→  bytes.forEach((b) => (bin += String.fromCharCode(b)));
+    53→    53→  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    54→    54→}
+    55→    55→function hh(src: TSource): string {
+    56→    56→  return b64urlEncode(JSON.stringify(src.headers ?? {}));
+    57→    57→}
+    58→    58→function proxied(src: TSource): string {
+    59→    59→  return `/api/stream?u=${encodeURIComponent(src.url).replace(/%24/g, '$')}&hh=${hh(src)}`;
+    60→    60→}
+    61→    61→function proxiedLicense(src: TSource, licUrl: string): string {
+    62→    62→  return `/api/license?u=${encodeURIComponent(licUrl)}&hh=${hh(src)}`;
+    63→    63→}
+    64→    64→function hexToB64url(hex: string): string {
+    65→    65→  const clean = hex.replace(/[^0-9a-fA-F]/g, '');
+    66→    66→  const bytes = new Uint8Array(clean.length / 2);
+    67→    67→  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(clean.substr(i * 2, 2), 16);
+    68→    68→  let bin = '';
+    69→    69→  bytes.forEach((b) => (bin += String.fromCharCode(b)));
+    70→    70→  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    71→    71→}
+    72→    72→function now(): string {
+    73→    73→  return new Date().toLocaleTimeString('id-ID', { hour12: false });
+    74→    74→}
+    75→    75→function typeOf(src: TSource): string {
+    76→    76→  if (src.manifestType) return src.manifestType.toUpperCase();
+    77→    77→  const u = (src.url || '').split('?')[0].toLowerCase();
+    78→    78→  if (u.endsWith('.mpd')) return 'MPD';
+    79→    79→  if (u.endsWith('.m3u8')) return 'HLS';
+    80→    80→  return 'HLS';
+    81→    81→}
+    82→    82→const STATUS_META: Record<string, { label: string; cls: string }> = {
+    83→    83→  OK: { label: 'Siap', cls: 'bg-emerald-400/15 text-emerald-300 border-emerald-400/30' },
+    84→    84→  OK_DASH: { label: 'DASH terbaca', cls: 'bg-emerald-400/15 text-emerald-300 border-emerald-400/30' },
+    85→    85→  MANIFEST_GAGAL: { label: 'Manifest gagal', cls: 'bg-rose-400/15 text-rose-300 border-rose-400/30' },
+    86→    86→  VARIANT_GAGAL: { label: 'Variant 404', cls: 'bg-rose-400/15 text-rose-300 border-rose-400/30' },
+    87→    87→  SEGMEN_GAGAL: { label: 'Segmen gagal', cls: 'bg-rose-400/15 text-rose-300 border-rose-400/30' },
+    88→    88→  TIMEOUT_ATAU_JARINGAN: { label: 'Timeout/jaringan', cls: 'bg-rose-400/15 text-rose-300 border-rose-400/30' },
+    89→    89→};
+    90→    90→
+    91→    91→// ============================================================
+    92→    92→// Halaman
+    93→    93→// ============================================================
+    94→    94→export default function TestPage() {
+    95→    95→  const [channels, setChannels] = useState<TChannel[]>([]);
+    96→    96→  const [categories, setCategories] = useState<string[]>([]);
+    97→    97→  const [serverInfo, setServerInfo] = useState<{ name?: string; version?: string } | null>(null);
+    98→    98→  const [loading, setLoading] = useState(true);
+    99→    99→  const [loadErr, setLoadErr] = useState<string | null>(null);
+   100→   100→  const [query, setQuery] = useState('');
+   101→   101→  const [cat, setCat] = useState('SEMUA');
+   102→   102→  const [selected, setSelected] = useState<TChannel | null>(null);
+   103→   103→  const [checks, setChecks] = useState<Record<number, CheckResult | 'loading'>>({});
+   104→   104→  const [activeSrc, setActiveSrc] = useState<number>(-1);
+   105→   105→  const [playing, setPlaying] = useState(false);
+   106→   106→  const [res, setRes] = useState('');
+   107→   107→  const [logs, setLogs] = useState<LogLine[]>([]);
+   108→   108→  const [sidebarOpen, setSidebarOpen] = useState(false);
+   109→   109→  const [apkReady, setApkReady] = useState(true);
+   110→   110→
+   111→   111→  const videoRef = useRef<HTMLVideoElement | null>(null);
+   112→   112→  const hlsRef = useRef<{ destroy(): void } | null>(null);
+   113→   113→  const dashRef = useRef<{ reset(): void; destroy(): void } | null>(null);
+   114→   114→  const logRef = useRef<HTMLDivElement | null>(null);
+   115→   115→  const currentIdRef = useRef<string | null>(null);
+   116→   116→
+   117→   117→  const addLog = useCallback((msg: string, kind: LogLine['kind'] = 'info') => {
+   118→   118→    setLogs((prev) => [...prev.slice(-120), { t: now(), msg, kind }]);
+   119→   119→  }, []);
+   120→   120→
+   121→   121→  useEffect(() => {
+   122→   122→    logRef.current?.scrollTo({ top: 999999 });
+   123→   123→  }, [logs]);
+   124→   124→
+   125→   125→  // ---- Muat daftar saluran ----
+   126→   126→  const loadChannels = useCallback(async () => {
+   127→   127→    setLoading(true);
+   128→   128→    setLoadErr(null);
+   129→   129→    try {
+   130→   130→      const r = await fetch('/api/channels', { cache: 'no-store' });
+   131→   131→      const j = await r.json();
+   132→   132→      if (!j.success) throw new Error(j.message || 'upstream error');
+   133→   133→      const list: TChannel[] = (j.channels as TChannel[]).filter(
+   134→   134→        (c) => c.sources && c.sources.length > 0
+   135→   135→      );
+   136→   136→      const cats: string[] = (j.categories as string[]).filter(
+   137→   137→        (c) => c && !c.includes('Favorites')
+   138→   138→      );
+   139→   139→      setChannels(list);
+   140→   140→      setCategories(cats);
+   141→   141→      setServerInfo(j.server ?? null);
+   142→   142→      addLog(`Daftar saluran dimuat: ${list.length} saluran`, 'ok');
+   143→   143→    } catch (e) {
+   144→   144→      setLoadErr(e instanceof Error ? e.message : 'gagal');
+   145→   145→      addLog(`Gagal memuat saluran: ${e instanceof Error ? e.message : '?'}`, 'err');
+   146→   146→    } finally {
+   147→   147→      setLoading(false);
+   148→   148→    }
+   149→   149→  }, [addLog]);
+   150→   150→
+   151→   151→  useEffect(() => { loadChannels(); }, [loadChannels]);
+   152→   152→  useEffect(() => {
+   153→   153→    fetch('/api/apk', { method: 'HEAD' }).then((r) => setApkReady(r.ok)).catch(() => setApkReady(false));
+   154→   154→  }, []);
+   155→   155→
+   156→   156→  // ---- Uji & putar saluran terpilih ----
+   157→   157→  const selectChannel = useCallback(async (ch: TChannel) => {
+   158→   158→    currentIdRef.current = ch.id;
+   159→   159→    setSelected(ch);
+   160→   160→    setSidebarOpen(false);
+   161→   161→    setActiveSrc(-1);
+   162→   162→    setPlaying(false);
+   163→   163→    setRes('');
+   164→   164→    setChecks(Object.fromEntries(ch.sources.map((_, i) => [i, 'loading' as const])));
+   165→   165→    setLogs([]);
+   166→   166→    addLog(`Memilih "${ch.name}" — menguji ${ch.sources.length} sumber…`, 'info');
+   167→   167→
+   168→   168→    // uji semua sumber paralel
+   169→   169→    const results = await Promise.all(
+   170→   170→      ch.sources.map(async (s): Promise<CheckResult | 'loading'> => {
+   171→   171→        try {
+   172→   172→          const r = await fetch(`/api/check?u=${encodeURIComponent(s.url)}&hh=${hh(s)}`, { cache: 'no-store' });
+   173→   173→          const j = (await r.json()) as CheckResult;
+   174→   174→          addLog(
+   175→   175→            `Uji ${s.url.slice(0, 64)}… → ${j.verdict ?? '?'}`,
+   176→   176→            j.ok ? 'ok' : 'warn'
+   177→   177→          );
+   178→   178→          return j;
+   179→   179→        } catch (e) {
+   180→   180→          addLog(`Uji gagal: ${e instanceof Error ? e.message : '?'}`, 'err');
+   181→   181→          return { ok: false, steps: [], verdict: 'TIMEOUT_ATAU_JARINGAN' };
+   182→   182→        }
+   183→   183→      })
+   184→   184→    );
+   185→   185→    // hindari race: hanya terapkan bila saluran belum berganti
+   186→   186→    if (currentIdRef.current !== ch.id) return;
+   187→   187→    setChecks(Object.fromEntries(results.map((r, i) => [i, r])));
+   188→   188→    const best = results.findIndex((r) => r !== 'loading' && r.ok);
+   189→   189→    playSource(ch, best >= 0 ? best : 0);
+   190→   190→     
+   191→   191→  }, [addLog]);
+   192→   192→
+   193→   193→  const destroyPlayers = useCallback(() => {
+   194→   194→    if (hlsRef.current) { try { hlsRef.current.destroy(); } catch { /* noop */ } hlsRef.current = null; }
+   195→   195→    if (dashRef.current) { try { dashRef.current.reset(); } catch { /* noop */ } try { dashRef.current.destroy(); } catch { /* noop */ } dashRef.current = null; }
+   196→   196→    if (videoRef.current) {
+   197→   197→      videoRef.current.removeAttribute('src');
+   198→   198→      try { videoRef.current.load(); } catch { /* noop */ }
+   199→   199→    }
+   200→   200→  }, []);
+   201→   201→
+   202→   202→  const playSource = useCallback(async (ch: TChannel, index: number) => {
+   203→   203→    const src = ch.sources[index];
+   204→   204→    if (!src) return;
+   205→   205→    destroyPlayers();
+   206→   206→    setActiveSrc(index);
+   207→   207→    setPlaying(false);
+   208→   208→    const type = typeOf(src);
+   209→   209→    const url = proxied(src);
+   210→   210→    const drm = src.drmConfig?.type;
+   211→   211→    addLog(`Memutar sumber ${index + 1}/${ch.sources.length} • ${type}${drm ? ` • DRM ${drm}` : ''}`, 'info');
+   212→   212→
+   213→   213→    const v = videoRef.current;
+   214→   214→    if (!v) return;
+   215→   215→
+   216→   216→    try {
+   217→   217→      if (type === 'HLS' || type === 'TS') {
+   218→   218→        const Hls = (await import('hls.js')).default;
+   219→   219→        if (Hls.isSupported()) {
+   220→   220→          const hls = new Hls({
+   221→   221→            enableWorker: true,
+   222→   222→            lowLatencyMode: false,
+   223→   223→            backBufferLength: 30,
+   224→   224→            manifestLoadingTimeOut: 15000,
+   225→   225→            manifestLoadingMaxRetry: 2,
+   226→   226→            levelLoadingMaxRetry: 3,
+   227→   227→            fragLoadingMaxRetry: 4,
+   228→   228→          });
+   229→   229→          hlsRef.current = hls;
+   230→   230→          hls.on(Hls.Events.ERROR, (_e, data) => {
+   231→   231→            if (!data.fatal) return;
+   232→   232→            addLog(`HLS error (${data.details}) — lanjut sumber berikutnya`, 'warn');
+   233→   233→            const next = index + 1;
+   234→   234→            if (next < ch.sources.length) playSource(ch, next);
+   235→   235→            else addLog('Semua sumber gagal diputar', 'err');
+   236→   236→          });
+   237→   237→          hls.loadSource(url);
+   238→   238→          hls.attachMedia(v);
+   239→   239→        } else {
+   240→   240→          v.src = url; // Safari
+   241→   241→        }
+   242→   242→      } else {
+   243→   243→        // DASH
+   244→   244→        const dashjs = (await import('dashjs')).default;
+   245→   245→        const player = dashjs.MediaPlayer().create();
+   246→   246→        dashRef.current = player as unknown as { reset(): void; destroy(): void };
+   247→   247→        // proteksi DRM
+   248→   248→        if (src.drmConfig?.type === 'WIDEVINE') {
+   249→   249→          const lic = src.drmConfig.licenseKey || src.drmConfig.licenseUrl || '';
+   250→   250→          if (lic.startsWith('http')) {
+   251→   251→            player.setProtectionData({
+   252→   252→              'com.widevine.alpha': { serverURL: proxiedLicense(src, lic) },
+   253→   253→            });
+   254→   254→            addLog('Widevine: lisensi via relay /api/license', 'info');
+   255→   255→          }
+   256→   256→        } else if (src.drmConfig?.type === 'CLEARKEY') {
+   257→   257→          const key = src.drmConfig.licenseKey || '';
+   258→   258→          if (/^[0-9a-fA-F]{16,64}:[0-9a-fA-F]{16,64}$/.test(key)) {
+   259→   259→            const [kid, k] = key.split(':');
+   260→   260→            player.setProtectionData({
+   261→   261→              'org.w3.clearkey': { clearkeys: { [hexToB64url(kid)]: hexToB64url(k) } },
+   262→   262→            });
+   263→   263→            addLog('ClearKey: kunci lokal dimuat', 'ok');
+   264→   264→          } else if (key.startsWith('http')) {
+   265→   265→            player.setProtectionData({
+   266→   266→              'org.w3.clearkey': { serverURL: proxiedLicense(src, key) },
+   267→   267→            });
+   268→   268→          }
+   269→   269→        }
+   270→   270→        player.on('error', (e: { error?: { message?: string } }) => {
+   271→   271→          addLog(`DASH error: ${e?.error?.message ?? 'tidak diketahui'} — lanjut sumber berikutnya`, 'warn');
+   272→   272→          const next = index + 1;
+   273→   273→          if (next < ch.sources.length) playSource(ch, next);
+   274→   274→          else addLog('Semua sumber gagal diputar', 'err');
+   275→   275→        });
+   276→   276→        player.updateSettings({
+   277→   277→          streaming: {
+   278→   278→            buffer: { fastSwitchEnabled: true },
+   279→   279→            abr: { autoSwitchBitrate: { video: true } },
+   280→   280→          },
+   281→   281→        });
+   282→   282→        player.initialize(v, url, true);
+   283→   283→      }
+   284→   284→
+   285→   285→      // autoplay: coba dengan suara; diblokir → bisukan lalu putar
+   286→   286→      v.onloadedmetadata = () => {
+   287→   287→        setRes(`${v.videoWidth}×${v.videoHeight}`);
+   288→   288→      };
+   289→   289→      v.onplaying = () => { setPlaying(true); };
+   290→   290→      v.onwaiting = () => { setPlaying(false); };
+   291→   291→      try {
+   292→   292→        await v.play();
+   293→   293→      } catch {
+   294→   294→        v.muted = true;
+   295→   295→        try { await v.play(); addLog('Autoplay dengan suara diblokir — dimulai tanpa suara', 'warn'); } catch { /* biarkan kontrol manual */ }
+   296→   296→      }
+   297→   297→    } catch (e) {
+   298→   298→      addLog(`Gagal memulai pemutar: ${e instanceof Error ? e.message : '?'}`, 'err');
+   299→   299→    }
+   300→   300→  }, [addLog, destroyPlayers]);
+   301→   301→
+   302→   302→  // ---- Filter daftar ----
+   303→   303→  const filtered = useMemo(() => {
+   304→   304→    const q = query.trim().toLowerCase();
+   305→   305→    return channels.filter((c) => {
+   306→   306→      const okCat = cat === 'SEMUA' || c.groupTitle === cat;
+   307→   307→      const okQ = !q || c.name.toLowerCase().includes(q) || c.groupTitle.toLowerCase().includes(q);
+   308→   308→      return okCat && okQ;
+   309→   309→    });
+   310→   310→  }, [channels, cat, query]);
+   311→   311→
+   312→   312→  // ============================================================
+   313→   313→  // Render
+   314→   314→  // ============================================================
+   315→   315→  return (
+   316→   316→    <div className="h-dvh flex flex-col bg-[#070B1E] text-[#F5F7FF] overflow-hidden">
+   317→   317→      {/* ===== Header ===== */}
+   318→   318→      <header className="shrink-0 flex items-center gap-3 px-4 sm:px-6 h-14 border-b border-white/10 bg-[#05081A]/80 backdrop-blur">
+   319→   319→        <button
+   320→   320→          className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-white/5"
+   321→   321→          onClick={() => setSidebarOpen((v) => !v)}
+   322→   322→          aria-label="Buka daftar saluran"
+   323→   323→        >
+   324→   324→          {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+   325→   325→        </button>
+   326→   326→        <div className="flex items-center gap-2.5 min-w-0">
+   327→   327→          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#FFC93C] to-[#FF9D2E] grid place-items-center shadow-lg shadow-amber-500/20">
+   328→   328→            <Tv className="w-4.5 h-4.5 text-[#231A00]" strokeWidth={2.4} />
+   329→   329→          </div>
+   330→   330→          <div className="min-w-0">
+   331→   331→            <h1 className="text-[15px] font-bold leading-tight truncate">NSL TV · Uji Coba Stream</h1>
+   332→   332→            <p className="text-[10.5px] text-[#7C85AD] leading-tight flex items-center gap-1.5">
+   333→   333→              <span className={`w-1.5 h-1.5 rounded-full ${loading ? 'bg-amber-300 animate-pulse' : loadErr ? 'bg-rose-400' : 'bg-emerald-400'}`} />
+   334→   334→              {loading ? 'Menghubungkan server…' : loadErr ? 'Server terputus' : `Server aktif${serverInfo?.name ? ` · ${serverInfo.name}` : ''} · ${channels.length} saluran`}
+   335→   335→            </p>
+   336→   336→          </div>
+   337→   337→        </div>
+   338→   338→        <div className="flex-1" />
+   339→   339→        <a
+   340→   340→          href="/api/apk"
+   341→   341→          className={`hidden sm:inline-flex items-center gap-2 h-9 px-4 rounded-full text-[12.5px] font-bold transition
+   342→   342→            ${apkReady
+   343→   343→              ? 'bg-[#FFC93C] text-[#231A00] hover:bg-[#FFDA5C] shadow-lg shadow-amber-500/20'
+   344→   344→              : 'bg-white/5 text-[#7C85AD] pointer-events-none'}`}
+   345→   345→        >
+   346→   346→          <Download className="w-4 h-4" />
+   347→   347→          Unduh APK v1.0.2
+   348→   348→        </a>
+   349→   349→      </header>
+   350→   350→
+   351→   351→      {/* ===== Body ===== */}
+   352→   352→      <div className="flex-1 flex min-h-0">
+   353→   353→        {/* ---- Sidebar ---- */}
+   354→   354→        <aside
+   355→   355→          className={`fixed lg:static inset-y-14 left-0 z-40 w-80 max-w-[85vw] bg-[#0D1230] lg:bg-[#0D1230]/40 border-r border-white/10 flex flex-col
+   356→   356→            transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+   357→   357→        >
+   358→   358→          <div className="p-3 space-y-2.5 border-b border-white/5">
+   359→   359→            <div className="relative">
+   360→   360→              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7C85AD]" />
+   361→   361→              <input
+   362→   362→                value={query}
+   363→   363→                onChange={(e) => setQuery(e.target.value)}
+   364→   364→                placeholder="Cari saluran…"
+   365→   365→                className="w-full h-9 pl-9 pr-3 rounded-xl bg-white/5 border border-white/10 text-[13px] placeholder:text-[#7C85AD] outline-none focus:border-amber-300/40"
+   366→   366→              />
+   367→   367→            </div>
+   368→   368→            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+   369→   369→              {['SEMUA', ...categories].map((c) => (
+   370→   370→                <button
+   371→   371→                  key={c}
+   372→   372→                  onClick={() => setCat(c)}
+   373→   373→                  className={`shrink-0 h-7 px-3 rounded-full text-[11px] font-semibold border transition
+   374→   374→                    ${cat === c
+   375→   375→                      ? 'bg-[#FFC93C] text-[#231A00] border-transparent'
+   376→   376→                      : 'bg-white/5 text-[#B9C1E3] border-white/10 hover:bg-white/10'}`}
+   377→   377→                >
+   378→   378→                  {c}
+   379→   379→                </button>
+   380→   380→              ))}
+   381→   381→            </div>
+   382→   382→          </div>
+   383→   383→          <div className="flex-1 overflow-y-auto overscroll-contain p-2 space-y-1 sidebar-scroll">
+   384→   384→            {loading && (
+   385→   385→              <div className="py-10 text-center text-[#7C85AD] text-xs flex flex-col items-center gap-2">
+   386→   386→                <Satellite className="w-5 h-5 animate-pulse" /> Memuat saluran…
+   387→   387→              </div>
+   388→   388→            )}
+   389→   389→            {loadErr && (
+   390→   390→              <div className="m-2 p-3 rounded-xl bg-rose-400/10 border border-rose-400/20 text-[12px] text-rose-200 space-y-2">
+   391→   391→                <p className="flex items-center gap-1.5 font-semibold"><CircleAlert className="w-4 h-4" /> Gagal memuat</p>
+   392→   392→                <p className="text-rose-300/80">{loadErr}</p>
+   393→   393→                <button onClick={loadChannels} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-[12px] font-semibold">
+   394→   394→                  <RefreshCw className="w-3.5 h-3.5" /> Coba lagi
+   395→   395→                </button>
+   396→   396→              </div>
+   397→   397→            )}
+   398→   398→            {!loading && filtered.map((ch) => {
+   399→   399→              const active = selected?.id === ch.id;
+   400→   400→              return (
+   401→   401→                <button
+   402→   402→                  key={ch.id}
+   403→   403→                  onClick={() => selectChannel(ch)}
+   404→   404→                  className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition
+   405→   405→                    ${active ? 'bg-amber-300/10 ring-1 ring-amber-300/30' : 'hover:bg-white/5'}`}
+   406→   406→                >
+   407→   407→                  <span className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 grid place-items-center overflow-hidden shrink-0">
+   408→   408→                    {ch.logoUrl ? (
+   409→   409→                       
+   410→   410→                      <img src={ch.logoUrl} alt="" referrerPolicy="no-referrer" loading="lazy" className="w-7 h-7 object-contain" />
+   411→   411→                    ) : (
+   412→   412→                      <Tv className="w-4 h-4 text-[#7C85AD]" />
+   413→   413→                    )}
+   414→   414→                  </span>
+   415→   415→                  <span className="min-w-0 flex-1">
+   416→   416→                    <span className="block text-[13px] font-semibold truncate">{ch.name}</span>
+   417→   417→                    <span className="block text-[10.5px] text-[#7C85AD] truncate">{ch.groupTitle} · {ch.sources.length} sumber</span>
+   418→   418→                  </span>
+   419→   419→                  {active && <Play className="w-3.5 h-3.5 text-amber-300 shrink-0" />}
+   420→   420→                </button>
+   421→   421→              );
+   422→   422→            })}
+   423→   423→            {!loading && !loadErr && filtered.length === 0 && (
+   424→   424→              <p className="py-10 text-center text-[#7C85AD] text-xs">Tidak ada saluran cocok.</p>
+   425→   425→            )}
+   426→   426→          </div>
+   427→   427→        </aside>
+   428→   428→        {sidebarOpen && (
+   429→   429→          <div className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setSidebarOpen(false)} />
+   430→   430→        )}
+   431→   431→
+   432→   432→        {/* ---- Main ---- */}
+   433→   433→        <main className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-6 space-y-4 main-scroll">
+   434→   434→          {!selected ? (
+   435→   435→            <div className="h-full min-h-[60vh] grid place-items-center">
+   436→   436→              <div className="text-center space-y-3 max-w-sm">
+   437→   437→                <div className="mx-auto w-14 h-14 rounded-2xl bg-white/5 border border-white/10 grid place-items-center">
+   438→   438→                  <MonitorPlay className="w-7 h-7 text-amber-300" />
+   439→   439→                </div>
+   440→   440→                <h2 className="text-lg font-bold">Pilih saluran di sidebar</h2>
+   441→   441→                <p className="text-[13px] text-[#B9C1E3] leading-relaxed">
+   442→   442→                  Setiap sumber saluran akan diuji otomatis (manifest → variant → segmen),
+   443→   443→                  lalu diputar langsung di sini untuk memastikan stream bisa jalan.
+   444→   444→                </p>
+   445→   445→              </div>
+   446→   446→            </div>
+   447→   447→          ) : (
+   448→   448→            <>
+   449→   449→              {/* Player */}
+   450→   450→              <section className="rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl shadow-black/40">
+   451→   451→                <video
+   452→   452→                  ref={videoRef}
+   453→   453→                  controls
+   454→   454→                  playsInline
+   455→   455→                  className="w-full aspect-video bg-black"
+   456→   456→                />
+   457→   457→              </section>
+   458→   458→
+   459→   459→              {/* Baris info saluran */}
+   460→   460→              <section className="flex flex-wrap items-center gap-2">
+   461→   461→                <div className="flex items-center gap-2 min-w-0 mr-auto">
+   462→   462→                  {selected.logoUrl ? (
+   463→   463→                     
+   464→   464→                    <img src={selected.logoUrl} alt="" referrerPolicy="no-referrer" className="w-8 h-8 object-contain" />
+   465→   465→                  ) : null}
+   466→   466→                  <div className="min-w-0">
+   467→   467→                    <h2 className="text-[15px] font-bold leading-tight truncate">{selected.name}</h2>
+   468→   468→                    <p className="text-[11px] text-[#7C85AD]">{selected.groupTitle}</p>
+   469→   469→                  </div>
+   470→   470→                  {playing && (
+   471→   471→                    <span className="ml-1 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-rose-500/15 border border-rose-400/30 text-rose-300 text-[10px] font-bold tracking-wide">
+   472→   472→                      <Radio className="w-3 h-3" /> LIVE
+   473→   473→                    </span>
+   474→   474→                  )}
+   475→   475→                  {res && (
+   476→   476→                    <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/5 border border-white/10 text-[#B9C1E3] text-[10px] font-semibold">
+   477→   477→                      {res}
+   478→   478→                    </span>
+   479→   479→                  )}
+   480→   480→                </div>
+   481→   481→                <div className="flex gap-1.5">
+   482→   482→                  {selected.sources.map((s, i) => {
+   483→   483→                    const c = checks[i];
+   484→   484→                    const dot = c === 'loading'
+   485→   485→                      ? 'bg-amber-300 animate-pulse'
+   486→   486→                      : c && c.ok ? 'bg-emerald-400' : 'bg-rose-400';
+   487→   487→                    const done = c !== 'loading' && c !== undefined;
+   488→   488→                    return (
+   489→   489→                      <button
+   490→   490→                        key={i}
+   491→   491→                        onClick={() => playSource(selected, i)}
+   492→   492→                        className={`h-8 pl-2.5 pr-3 rounded-full text-[11.5px] font-bold border inline-flex items-center gap-1.5 transition
+   493→   493→                          ${activeSrc === i
+   494→   494→                            ? 'bg-amber-300/15 border-amber-300/40 text-amber-200'
+   495→   495→                            : 'bg-white/5 border-white/10 text-[#B9C1E3] hover:bg-white/10'}`}
+   496→   496→                      >
+   497→   497→                        <span className={`w-1.5 h-1.5 rounded-full ${done ? dot : 'bg-amber-300 animate-pulse'}`} />
+   498→   498→                        Sumber {i + 1} · {typeOf(s)}
+   499→   499→                        {s.drmConfig?.type ? ` · ${s.drmConfig.type === 'WIDEVINE' ? 'WV' : s.drmConfig.type === 'CLEARKEY' ? 'CK' : s.drmConfig.type[0]}` : ''}
+   500→   500→                      </button>
+   501→   501→                    );
+   502→   502→                  })}
+   503→   503→                </div>
+   504→   504→              </section>
+   505→   505→
+   506→   506→              {/* Hasil uji per sumber */}
+   507→   507→              <section className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+   508→   508→                {selected.sources.map((s, i) => {
+   509→   509→                  const c = checks[i];
+   510→   510→                  const meta = c !== 'loading' && c ? (STATUS_META[c.verdict ?? ''] ?? null) : null;
+   511→   511→                  return (
+   512→   512→                    <div key={i} className="rounded-2xl border border-white/10 bg-[#111736]/60 p-3.5 space-y-2.5">
+   513→   513→                      <div className="flex items-center gap-2">
+   514→   514→                        <Layers className="w-4 h-4 text-amber-300 shrink-0" />
+   515→   515→                        <p className="text-[12.5px] font-bold mr-auto">Sumber {i + 1} — {typeOf(s)}</p>
+   516→   516→                        {c === 'loading' ? (
+   517→   517→                          <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-amber-300">
+   518→   518→                            <RefreshCw className="w-3 h-3 animate-spin" /> Menguji…
+   519→   519→                          </span>
+   520→   520→                        ) : meta ? (
+   521→   521→                          <span className={`h-6 px-2 inline-flex items-center rounded-full border text-[10px] font-bold ${meta.cls}`}>
+   522→   522→                            {meta.label}
+   523→   523→                          </span>
+   524→   524→                        ) : null}
+   525→   525→                      </div>
+   526→   526→                      {s.drmConfig?.type && (
+   527→   527→                        <p className="inline-flex items-center gap-1.5 text-[10.5px] text-[#B9C1E3] bg-white/5 border border-white/10 rounded-full h-6 px-2">
+   528→   528→                          <ShieldCheck className="w-3 h-3 text-amber-300" /> DRM {s.drmConfig.type}
+   529→   529→                        </p>
+   530→   530→                      )}
+   531→   531→                      <div className="space-y-1">
+   532→   532→                        {c === 'loading' && (
+   533→   533→                          <p className="text-[11px] text-[#7C85AD] flex items-center gap-1.5 py-1">
+   534→   534→                            <CircleDashed className="w-3.5 h-3.5 animate-spin" /> Memeriksa rantai stream…
+   535→   535→                          </p>
+   536→   536→                        )}
+   537→   537→                        {c && c !== 'loading' && c.steps.map((st, k) => (
+   538→   538→                          <div key={k} className="flex items-start gap-2 text-[11px]">
+   539→   539→                            {st.ok ? (
+   540→   540→                              <CircleCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-px" />
+   541→   541→                            ) : (
+   542→   542→                              <CircleAlert className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-px" />
+   543→   543→                            )}
+   544→   544→                            <div className="min-w-0">
+   545→   545→                              <p className="font-semibold text-[#F5F7FF]">
+   546→   546→                                {st.label} <span className={st.status ? 'text-[#7C85AD] font-normal' : 'text-rose-300 font-normal'}>
+   547→   547→                                  {st.status ?? 'ERR'}
+   548→   548→                                </span>
+   549→   549→                              </p>
+   550→   550→                              {st.note && <p className="text-[10px] text-[#7C85AD] truncate">{st.note}</p>}
+   551→   551→                            </div>
+   552→   552→                          </div>
+   553→   553→                        ))}
+   554→   554→                      </div>
+   555→   555→                      {Object.keys(s.headers ?? {}).length > 0 && (
+   556→   556→                        <div className="pt-1 border-t border-white/5">
+   557→   557→                          <p className="text-[10px] text-[#7C85AD] font-mono truncate">
+   558→   558→                            {Object.entries(s.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join('  ·  ')}
+   559→   559→                          </p>
+   560→   560→                        </div>
+   561→   561→                      )}
+   562→   562→                    </div>
+   563→   563→                  );
+   564→   564→                })}
+   565→   565→              </section>
+   566→   566→
+   567→   567→              {/* Log */}
+   568→   568→              <section className="rounded-2xl border border-white/10 bg-[#05081A]/70 p-3.5">
+   569→   569→                <div className="flex items-center gap-2 mb-2">
+   570→   570→                  <Activity className="w-4 h-4 text-amber-300" />
+   571→   571→                  <p className="text-[12.5px] font-bold mr-auto">Log Uji Coba</p>
+   572→   572→                  <button
+   573→   573→                    onClick={() => selected && playSource(selected, activeSrc >= 0 ? activeSrc : 0)}
+   574→   574→                    className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-semibold text-[#B9C1E3]"
+   575→   575→                  >
+   576→   576→                    <RefreshCw className="w-3 h-3" /> Putar ulang
+   577→   577→                  </button>
+   578→   578→                </div>
+   579→   579→                <div ref={logRef} className="max-h-40 overflow-y-auto font-mono text-[10.5px] leading-5 space-y-0.5 log-scroll">
+   580→   580→                  {logs.length === 0 ? (
+   581→   581→                    <p className="text-[#7C85AD]">Belum ada aktivitas.</p>
+   582→   582→                  ) : (
+   583→   583→                    logs.map((l, i) => (
+   584→   584→                      <p key={i} className="truncate">
+   585→   585→                        <span className="text-[#7C85AD]">[{l.t}]</span>{' '}
+   586→   586→                        <span className={
+   587→   587→                          l.kind === 'ok' ? 'text-emerald-300'
+   588→   588→                            : l.kind === 'warn' ? 'text-amber-300'
+   589→   589→                              : l.kind === 'err' ? 'text-rose-300' : 'text-[#B9C1E3]'
+   590→   590→                        }>{l.msg}</span>
+   591→   591→                      </p>
+   592→   592→                    ))
+   593→   593→                  )}
+   594→   594→                </div>
+   595→   595→              </section>
+   596→   596→            </>
+   597→   597→          )}
+   598→   598→        </main>
+   599→   599→      </div>
+   600→   600→
+   601→   601→      {/* ===== Footer (menempel di bawah) ===== */}
+   602→   602→      <footer className="shrink-0 h-9 flex items-center justify-center gap-2 border-t border-white/10 bg-[#05081A]/80 text-[10.5px] text-[#7C85AD]">
+   603→   603→        <Tv className="w-3.5 h-3.5" />
+   604→   604→        NSL TV · Panel Uji Coba Stream — sumber bertanda hijau pasti jalan di aplikasi Android
+   605→   605→      </footer>
+   606→   606→    </div>
+   607→   607→  );
+   608→   608→}
+   609→   609→
