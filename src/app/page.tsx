@@ -107,6 +107,7 @@ export default function TestPage() {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [apkReady, setApkReady] = useState(true);
+  const [apkInfo, setApkInfo] = useState<{ version: string; size: number } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<{ destroy(): void } | null>(null);
@@ -150,7 +151,13 @@ export default function TestPage() {
 
   useEffect(() => { loadChannels(); }, [loadChannels]);
   useEffect(() => {
-    fetch('/api/apk', { method: 'HEAD' }).then((r) => setApkReady(r.ok)).catch(() => setApkReady(false));
+    fetch('/api/apk?info=1', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('n/a'))))
+      .then((j) => {
+        setApkInfo({ version: j.version, size: j.size });
+        setApkReady(true);
+      })
+      .catch(() => setApkReady(false));
   }, []);
 
   // ---- Uji & putar saluran terpilih ----
@@ -344,7 +351,10 @@ export default function TestPage() {
               : 'bg-white/5 text-[#7C85AD] pointer-events-none'}`}
         >
           <Download className="w-4 h-4" />
-          Unduh APK v1.0.2
+          Unduh APK v{apkInfo?.version ?? '1.0.2'}
+          {apkInfo?.size ? (
+            <span className="opacity-70 font-semibold">· {(apkInfo.size / 1048576).toFixed(1)} MB</span>
+          ) : null}
         </a>
       </header>
 
@@ -422,6 +432,32 @@ export default function TestPage() {
             })}
             {!loading && !loadErr && filtered.length === 0 && (
               <p className="py-10 text-center text-[#7C85AD] text-xs">Tidak ada saluran cocok.</p>
+            )}
+          </div>
+
+          {/* ---- Kartu unduh APK rilis ---- */}
+          <div className="border-t border-white/5 p-3">
+            {apkReady ? (
+              <a
+                href="/api/apk"
+                className="flex items-center gap-3 w-full p-3 rounded-xl bg-amber-300/10 border border-amber-300/25 hover:bg-amber-300/15 transition group"
+              >
+                <span className="w-10 h-10 rounded-xl bg-[#FFC93C] text-[#231A00] grid place-items-center shrink-0 shadow-lg shadow-amber-500/20">
+                  <Download className="w-5 h-5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-bold text-amber-200 leading-tight">
+                    Unduh APK NSL TV v{apkInfo?.version ?? '1.0.2'}
+                  </span>
+                  <span className="block text-[10.5px] text-[#9BA4CC] leading-tight mt-0.5">
+                    Rilis resmi (bukan debug){apkInfo?.size ? ` · ${(apkInfo.size / 1048576).toFixed(1)} MB` : ''} · untuk HP &amp; TV Box
+                  </span>
+                </span>
+              </a>
+            ) : (
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-[11.5px] text-[#7C85AD] flex items-center gap-2">
+                <CircleDashed className="w-4 h-4" /> APK sedang disiapkan…
+              </div>
             )}
           </div>
         </aside>
