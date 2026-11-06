@@ -2,6 +2,7 @@ package com.nsl.tv.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -29,29 +30,71 @@ private val logoHttp = OkHttpClient.Builder()
     .readTimeout(8, TimeUnit.SECONDS)
     .build()
 
-private val logoCache = object : LinkedHashMap<String, Bitmap>(64, 0.75f, true) {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>): Boolean = size > 256
+/**
+ * Cache logo thread-safe (android.util.LruCache aman dari akses multithread).
+ * Bitmap di-downsample ke maksimal 256 px — mencegah OutOfMemoryError saat
+ * menelusuri ratusan saluran. Ukuran cache dibatasi ~1/16 heap aplikasi.
+ */
+private object LogoCache {
+    private const val MAX_DIM = 256
+
+    private val cache = LruCache<String, Bitmap>(
+        (Runtime.getRuntime().maxMemory() / 16 / 1024).toInt().coerceIn(512, 8192) // KB
+    )
+
+    fun get(url: String): Bitmap? = try { cache.get(url) } catch (_: Throwable) { null }
+
+    fun put(url: String, bmp: Bitmap) {
+        try { cache.put(url, bmp) } catch (_: Throwable) {}
+    }
+
+    /** Dipanggil sistem saat memori menipis — buang semua logo, akan dimuat ulang. */
+    fun trim() {
+        try { cache.evictAll() } catch (_: Throwable) {}
+    }
+
+    /** Decode dengan downsampling: bitmap > 256 px dibuat perkecil via inSampleSize. */
+    fun decode(bytes: ByteArray): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        var w = bounds.outWidth
+        var h = bounds.outHeight
+        while (w / 2 >= MAX_DIM && h / 2 >= MAX_DIM) {
+            w /= 2; h /= 2; sample *= 2
+        }
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.RGB_565 // logo: hemat memori 50%, tanpa alpha penting
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
 }
 
-/** Logo saluran async dengan cache memori + placeholder inisial. */
+/** Trim cache logo dari Application.onTrimMemory. */
+fun trimLogoCache() = LogoCache.trim()
+
+/** Logo saluran async dengan cache memori aman-thread + placeholder inisial. */
 @Composable
 fun ChannelLogo(url: String?, name: String, size: Dp, modifier: Modifier = Modifier) {
-    var bitmap by remember(url) { mutableStateOf<Bitmap?>(logoCache[url]) }
+    var bitmap by remember(url) { mutableStateOf(url?.let { LogoCache.get(it) }) }
+    var failed by remember(url) { mutableStateOf(false) }
 
     LaunchedEffect(url) {
-        if (url != null && bitmap == null) {
-            val b = withContext(Dispatchers.IO) {
-                try {
-                    val bmp = logoHttp.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build())
-                        .execute().use { r ->
-                            if (r.isSuccessful) r.body?.byteStream()?.use { BitmapFactory.decodeStream(it) } else null
-                        }
-                    bmp?.let { if (logoCache.size > 256) logoCache.clear(); logoCache[url] = it }
-                    bmp
-                } catch (_: Exception) { null }
-            }
-            bitmap = b
+        if (url == null) return@LaunchedEffect
+        if (bitmap != null || failed) return@LaunchedEffect
+        val b = withContext(Dispatchers.IO) {
+            try {
+                val bytes = logoHttp.newCall(
+                    Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+                ).execute().use { r ->
+                    if (r.isSuccessful) r.body?.bytes() else null
+                }
+                bytes?.let { LogoCache.decode(it) }?.also { LogoCache.put(url, it) }
+            } catch (_: Throwable) { null }
         }
+        if (b != null) bitmap = b else failed = true
     }
 
     if (bitmap != null) {

@@ -34,6 +34,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
+import com.nsl.tv.PlaybackHolder
 import com.nsl.tv.data.Channel
 import com.nsl.tv.player.PlayerFactory
 import kotlinx.coroutines.delay
@@ -61,6 +62,12 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         onUiMode(true)
         onDispose { onUiMode(false) }
+    }
+
+    // ---- Tandai pemutaran aktif → PIP otomatis saat pengguna keluar aplikasi ----
+    DisposableEffect(channel.id) {
+        PlaybackHolder.playing = true
+        onDispose { PlaybackHolder.playing = false }
     }
 
     // ---- Player dibuat dengan aman (anti force-close) ----
@@ -149,7 +156,7 @@ fun PlayerScreen(
         // ---- Watchdog: buffering terlalu lama → pindah sumber otomatis ----
         LaunchedEffect(channel.id, sourceIndex, attempt) {
             delay(BUFFER_TIMEOUT_MS)
-            if (!isReady) advanceSource()
+            if (!isReady && errorMsg == null) advanceSource()
         }
 
         // ---- Bersihkan player saat keluar ----

@@ -52,7 +52,7 @@ export async function GET(req: Request) {
       const m = found.file.match(/v(\d+\.\d+\.\d+)/);
       return NextResponse.json(
         {
-          version: m ? m[1] : "1.0.3",
+          version: m ? m[1] : "1.0.5",
           filename: found.file,
           size: found.stat.size,
           updatedAt: found.stat.mtime.toISOString(),

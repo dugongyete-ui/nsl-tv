@@ -17,6 +17,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import com.nsl.tv.NslApp
 import com.nsl.tv.data.Prefs
 
 @Composable
@@ -60,6 +64,14 @@ private fun SettingButton(title: String, onClick: () -> Unit) {
     ) {
         Text(title, color = Palette.Text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
     }
+}
+
+
+/** Ringkas laporan panjang: tampilkan baris pertama + baris terakhir. */
+private fun String.lineCount(max: Int): String {
+    val lines = lines()
+    return if (lines.size <= max * 2) this
+    else lines.take(max).joinToString("\n") + "\n…\n" + lines.takeLast(max).joinToString("\n")
 }
 
 @Composable
@@ -112,6 +124,38 @@ fun SettingsScreen(
             snackbar("Memuat saluran terbaru…")
         }
         SettingButton("Hapus Semua Favorit") { onClearFav() }
+
+        // ---- Diagnostik: laporan error terakhir (bila pernah terjadi crash) ----
+        val crashReport = remember { NslApp.lastCrashReport(context) }
+        if (!crashReport.isNullOrBlank()) {
+            Text(
+                "Laporan error terakhir",
+                color = Palette.TextDim,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            Text(
+                crashReport.lineCount(8),
+                color = Palette.TextDim,
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Palette.CardSoft)
+                    .padding(10.dp)
+            )
+            SettingButton("Salin Laporan Error") {
+                runCatching {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    cm?.setPrimaryClip(ClipData.newPlainText("NSL TV Crash", crashReport))
+                    snackbar("Laporan error disalin ke papan klip")
+                }
+            }
+            SettingButton("Hapus Laporan Error") {
+                NslApp.clearCrashReport(context)
+                snackbar("Laporan error dihapus")
+            }
+        }
 
         Spacer(Modifier.height(8.dp))
         Text(

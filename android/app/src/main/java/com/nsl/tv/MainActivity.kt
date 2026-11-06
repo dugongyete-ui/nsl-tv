@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.res.Configuration
 
 // ============================================================
 // State aplikasi
@@ -53,12 +54,34 @@ sealed interface LoadState {
     data class Error(val message: String) : LoadState
 }
 
+/** Status PIP reaktif (Compose mengamati perubahan ini — tidak ada nilai basi/stale). */
+object PipTracker {
+    var inPip by mutableStateOf(false)
+}
+
+/** Apakah pemutar sedang aktif — dipakai untuk PIP otomatis saat pengguna keluar. */
+object PlaybackHolder {
+    var playing by mutableStateOf(false)
+}
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { NslRoot() }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        PipTracker.inPip = isInPictureInPictureMode
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Keluar dari aplikasi sambil menonton → lanjut sebagai jendela melayang (PIP).
+        if (PlaybackHolder.playing) enterPip()
     }
 
     fun enterPip() {
@@ -177,13 +200,14 @@ fun NslRoot() {
         )
     ) {
         Surface(Modifier.fillMaxSize(), color = Palette.Bg) {
-            if (playerChannel != null) {
+            val playingChannel = playerChannel
+            if (playingChannel != null) {
                 PlayerScreen(
-                    channel = playerChannel!!,
+                    channel = playingChannel,
                     onDismiss = { playerChannel = null },
                     onSourceChanged = { idx -> /* info sumber */ },
                     onEnterPip = { activity?.enterPip() },
-                    inPip = activity?.inPip ?: false,
+                    inPip = PipTracker.inPip,
                     onUiMode = { enable -> activity?.playerUiMode(enable) },
                     onSetLandscape = { landscape -> activity?.setLandscape(landscape) }
                 )
