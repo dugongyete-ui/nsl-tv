@@ -351,7 +351,7 @@ export default function TestPage() {
               : 'bg-white/5 text-[#7C85AD] pointer-events-none'}`}
         >
           <Download className="w-4 h-4" />
-          Unduh APK v{apkInfo?.version ?? '1.0.3'}
+          Unduh APK v{apkInfo?.version ?? '1.0.4'}
           {apkInfo?.size ? (
             <span className="opacity-70 font-semibold">· {(apkInfo.size / 1048576).toFixed(1)} MB</span>
           ) : null}
@@ -447,7 +447,7 @@ export default function TestPage() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] font-bold text-amber-200 leading-tight">
-                    Unduh APK NSL TV v{apkInfo?.version ?? '1.0.3'}
+                    Unduh APK NSL TV v{apkInfo?.version ?? '1.0.4'}
                   </span>
                   <span className="block text-[10.5px] text-[#9BA4CC] leading-tight mt-0.5">
                     Rilis resmi (bukan debug){apkInfo?.size ? ` · ${(apkInfo.size / 1048576).toFixed(1)} MB` : ''} · untuk HP &amp; TV Box
