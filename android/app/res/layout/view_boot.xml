@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/bg_boot" android:gravity="center"
+    android:orientation="vertical" android:padding="32dp">
+
+    <ImageView android:id="@+id/bootLogo" android:layout_width="112dp" android:layout_height="112dp"
+        android:src="@mipmap/ic_launcher" android:contentDescription="@string/app_name" />
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="18dp" android:text="@string/app_name"
+        android:textColor="@color/text_hi" android:textSize="30sp" android:textStyle="bold" />
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="2dp" android:text="Live Streaming Indonesia"
+        android:textColor="@color/text_lo" android:textSize="12sp" android:letterSpacing="0.12" />
+
+    <TextView android:id="@+id/bootStatus" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="34dp" android:text="@string/boot_checking"
+        android:textColor="@color/text_mid" android:textSize="14sp" />
+
+    <ProgressBar android:layout_width="26dp" android:layout_height="26dp"
+        android:layout_marginTop="16dp" android:indeterminateTint="@color/sun" />
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginTop="42dp" android:text="v1.0.1"
+        android:textColor="#557C85AD" android:textSize="11sp" android:letterSpacing="0.1" />
+</LinearLayout>

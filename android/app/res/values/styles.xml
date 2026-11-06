@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="NSLTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">@color/sun</item>
+        <item name="android:colorControlActivated">@color/sun</item>
+        <item name="android:colorControlNormal">@color/text_lo</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+    <style name="NSLTheme.Player" parent="NSLTheme">
+        <item name="android:windowBackground">#FF000000</item>
+        <item name="android:statusBarColor">#FF000000</item>
+        <item name="android:navigationBarColor">#FF000000</item>
+    </style>
+    <style name="NavLabel">
+        <item name="android:textSize">10sp</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:layout_marginTop">3dp</item>
+    </style>
+</resources>

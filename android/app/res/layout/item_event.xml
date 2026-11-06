@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:layout_marginTop="7dp" android:background="@drawable/card" android:gravity="center_vertical"
+    android:orientation="horizontal" android:padding="12dp">
+    <ImageView android:id="@+id/evLogo" android:layout_width="64dp" android:layout_height="40dp"
+        android:background="@drawable/logo_bg" android:scaleType="fitCenter" android:padding="6dp"
+        android:contentDescription="@string/app_name" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:layout_marginStart="12dp" android:layout_marginEnd="8dp" android:orientation="vertical">
+        <TextView android:id="@+id/evTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textColor="@color/text_hi" android:textSize="13.5sp" android:textStyle="bold"
+            android:maxLines="2" android:ellipsize="end" android:lineSpacingExtra="1dp" />
+        <TextView android:id="@+id/evLeague" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="2dp" android:textColor="@color/text_lo" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:gravity="end" android:orientation="vertical">
+        <TextView android:id="@+id/evBadge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:background="@drawable/badge_live" android:paddingStart="8dp" android:paddingEnd="8dp"
+            android:paddingTop="2.5dp" android:paddingBottom="2.5dp" android:text="LIVE"
+            android:textColor="#FFFFFFFF" android:textSize="9.5sp" android:textStyle="bold" />
+        <TextView android:id="@+id/evTime" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" android:textColor="@color/text_mid" android:textSize="10.5sp" android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent">
+    <include android:id="@+id/bootView" layout="@layout/view_boot" />
+    <include android:id="@+id/mainView" layout="@layout/view_main" />
+    <include android:id="@+id/blockedView" layout="@layout/view_blocked" />
+</FrameLayout>
