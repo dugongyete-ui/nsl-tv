@@ -2,6 +2,7 @@ package com.nsl.tv.player
 
 import android.content.Context
 import android.util.Base64
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -53,8 +54,18 @@ object PlayerFactory {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
+        // Audio fokus profesional: jeda saat panggilan/app lain butuh audio,
+        // jeda otomatis saat headset dicabut, dan tetap streaming saat layar mati.
+        val audioAttrs = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+
         return ExoPlayer.Builder(appCtx, renderers)
             .setLoadControl(loadControl)
+            .setAudioAttributes(audioAttrs, /* handleAudioFocus = */ true)
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .apply {
                 runCatching {

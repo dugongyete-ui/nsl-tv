@@ -1,15 +1,21 @@
 package com.nsl.tv
 
 import android.app.PictureInPictureParams
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Favorite
@@ -49,8 +55,6 @@ sealed interface LoadState {
 
 class MainActivity : ComponentActivity() {
 
-    private var pipRequest: (() -> Unit)? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -73,6 +77,36 @@ class MainActivity : ComponentActivity() {
     var inPip: Boolean
         get() = isInPictureInPictureMode
         set(_) {}
+
+    /**
+     * Mode sinematik saat menonton: layar penuh (status bar & nav bar disembunyikan),
+     * orientasi landscape, dan layar tidak mati selama menonton.
+     */
+    fun playerUiMode(enable: Boolean) {
+        runCatching {
+            if (enable) {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                val c = WindowCompat.getInsetsController(window, window.decorView)
+                c.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                c.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                WindowCompat.getInsetsController(window, window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    /** Ganti orientasi manual saat menonton (ikon rotasi di bilah bawah). */
+    fun setLandscape(enable: Boolean) {
+        runCatching {
+            requestedOrientation = if (enable) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        }
+    }
 }
 
 /** Cari MainActivity dari context apa pun tanpa cast yang bisa crash. */
@@ -94,7 +128,18 @@ fun NslRoot() {
     var favorites by remember { mutableStateOf(Prefs.favorites(appContext)) }
     var playerChannel by remember { mutableStateOf<Channel?>(null) }
     var snackbar by remember { mutableStateOf<String?>(null) }
-    var pipHint by remember { mutableStateOf(false) }
+
+    // ---- Riwayat navigasi (tombol back sistem): beranda dulu, baru keluar ----
+    androidx.activity.compose.BackHandler(
+        enabled = playerChannel == null &&
+            (search.isNotEmpty() || tab != 0 || activeCategory != "SEMUA")
+    ) {
+        when {
+            search.isNotEmpty() -> search = ""
+            tab != 0 -> tab = 0
+            else -> activeCategory = "SEMUA"
+        }
+    }
 
     fun refreshFavorites() { favorites = Prefs.favorites(appContext) }
 
@@ -138,7 +183,9 @@ fun NslRoot() {
                     onDismiss = { playerChannel = null },
                     onSourceChanged = { idx -> /* info sumber */ },
                     onEnterPip = { activity?.enterPip() },
-                    inPip = activity?.inPip ?: false
+                    inPip = activity?.inPip ?: false,
+                    onUiMode = { enable -> activity?.playerUiMode(enable) },
+                    onSetLandscape = { landscape -> activity?.setLandscape(landscape) }
                 )
             } else {
                 Column(Modifier.fillMaxSize().background(Palette.Bg)) {
@@ -212,7 +259,12 @@ fun NslRoot() {
             }
 
             snackbar?.let { msg ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .navigationBarsPadding(),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
                     Snackbar(
                         containerColor = Palette.CardSoft,
                         contentColor = Palette.Text,

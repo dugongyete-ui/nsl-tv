@@ -2,10 +2,15 @@ package com.nsl.tv.ui
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -42,10 +47,21 @@ fun PlayerScreen(
     onDismiss: () -> Unit,
     onSourceChanged: (Int) -> Unit,
     onEnterPip: () -> Unit,
-    inPip: Boolean
+    inPip: Boolean,
+    onUiMode: (Boolean) -> Unit = {},
+    onSetLandscape: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val sources = channel.sources
+
+    // ---- Tombol back sistem: tutup player → kembali ke beranda (bukan keluar aplikasi) ----
+    BackHandler { onDismiss() }
+
+    // ---- Mode sinematik: landscape + layar penuh + layar tetap menyala ----
+    DisposableEffect(Unit) {
+        onUiMode(true)
+        onDispose { onUiMode(false) }
+    }
 
     // ---- Player dibuat dengan aman (anti force-close) ----
     val player = remember(channel.id) { PlayerFactory.createPlayerSafe(context) }
@@ -62,6 +78,7 @@ fun PlayerScreen(
     var ratioMode by remember { mutableStateOf("FIT") }
     var qualityMode by remember { mutableStateOf("AUTO") }
     var showPlaylist by remember { mutableStateOf(false) }
+    var landscape by remember { mutableStateOf(true) }
 
     // ---- Ganti ke sumber berikutnya (fallback aman) ----
     fun advanceSource() {
@@ -235,11 +252,12 @@ fun PlayerScreen(
         // ---- Overlay kontrol ----
         if (controlsVisible && !inPip) {
             Column(Modifier.fillMaxSize()) {
-                // ======== Atas ========
+                // ======== Atas (aman dari status bar — insets otomatis) ========
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .background(Color.Black.copy(alpha = 0.55f))
+                        .windowInsetsPadding(WindowInsets.statusBars)
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -332,11 +350,12 @@ fun PlayerScreen(
                     }
                 }
 
-                // ======== Bawah ========
+                // ======== Bawah (aman dari nav bar gesture) ========
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .background(Color.Black.copy(alpha = 0.55f))
+                        .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -367,6 +386,17 @@ fun PlayerScreen(
                             modifier = Modifier.clickable {
                                 ratioMode = when (ratioMode) { "FIT" -> "FILL"; "FILL" -> "ZOOM"; else -> "FIT" }
                             }
+                        )
+                        Icon(
+                            Icons.Filled.ScreenRotation,
+                            contentDescription = if (landscape) "Mode potret" else "Mode landscape",
+                            tint = if (landscape) Color.White else Palette.Amber,
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clickable {
+                                    landscape = !landscape
+                                    onSetLandscape(landscape)
+                                }
                         )
                         Icon(
                             if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,

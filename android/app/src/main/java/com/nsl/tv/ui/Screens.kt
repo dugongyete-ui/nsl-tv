@@ -22,7 +22,13 @@ import com.nsl.tv.R
 
 @Composable
 fun TopBar(search: String, onSearch: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(Palette.Bg).padding(horizontal = 16.dp, vertical = 10.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Palette.Bg)
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Image(
                 painter = painterResource(R.mipmap.ic_launcher),
