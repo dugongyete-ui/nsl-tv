@@ -61,15 +61,18 @@ export async function GET(req: Request) {
       );
     }
 
-    const stream = fs.createReadStream(found.full) as unknown as ReadableStream;
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "application/vnd.android.package-archive",
-        "Content-Length": String(found.stat.size),
-        "Content-Disposition": `attachment; filename="${found.file}"`,
-        "Cache-Control": "no-store",
-      },
-    });
+    const data = fs.readFileSync(found.full);
+    return new Response(
+      new Uint8Array(data),
+      {
+        headers: {
+          "Content-Type": "application/vnd.android.package-archive",
+          "Content-Length": String(found.stat.size),
+          "Content-Disposition": `attachment; filename="${found.file}"`,
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "gagal" },
