@@ -195,20 +195,26 @@ fun PlayerScreen(
         if (player != null) {
             AndroidView(
                 factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        useController = false
-                        resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        setShutterBackgroundColor(android.graphics.Color.BLACK)
-                        this.player = player
+                    val view = runCatching {
+                        PlayerView(ctx).apply {
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            useController = false
+                            resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            setShutterBackgroundColor(android.graphics.Color.BLACK)
+                            this.player = player
+                        }
+                    }.getOrElse {
+                        // Fallback tampilan kosong — aplikasi tetap hidup, kontrol tetap bisa dipakai
+                        FrameLayout(ctx)
                     }
+                    view
                 },
                 update = { view ->
                     runCatching {
-                        view.resizeMode = when (ratioMode) {
+                        (view as? PlayerView)?.resizeMode = when (ratioMode) {
                             "FILL" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
                             "ZOOM" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                             else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT

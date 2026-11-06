@@ -14,8 +14,8 @@ object Auth {
     const val APP_SECRET = "DopamineTV_SecKey_2026_X9#"
     const val PREFS = "dopamine_tv_prefs"
     const val KEY_DEVICE_ID = "unique_device_id_v1"
-    const val APP_VERSION = "1.0.5"
-    const val USER_AGENT = "NSLTV/1.0.5 (Android; ARM) Kodi/21.0"
+    const val APP_VERSION = "1.0.6"
+    const val USER_AGENT = "NSLTV/1.0.6 (Android; ARM) Kodi/21.0"
     const val BASE_URL = "https://dopaminetv.mikrofast.my.id"
 
     fun deviceId(ctx: Context): String {

@@ -55,7 +55,10 @@ object PlayerFactory {
             .build()
 
         // Audio fokus profesional: jeda saat panggilan/app lain butuh audio,
-        // jeda otomatis saat headset dicabut, dan tetap streaming saat layar mati.
+        // jeda otomatis saat headset dicabut.
+        // CATATAN: TANPA setWakeMode — WifiLock/WakeLock butuh izin WAKE_LOCK dan
+        // menyebabkan SecurityException (crash saat play). Layar dijaga tetap menyala
+        // lewat FLAG_KEEP_SCREEN_ON saat menonton, jadi wake mode tidak diperlukan.
         val audioAttrs = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -65,7 +68,6 @@ object PlayerFactory {
             .setLoadControl(loadControl)
             .setAudioAttributes(audioAttrs, /* handleAudioFocus = */ true)
             .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .apply {
                 runCatching {
