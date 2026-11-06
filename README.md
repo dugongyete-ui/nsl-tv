@@ -2,6 +2,11 @@
 
 Aplikasi IPTV Android pribadi (HP & TV Box) + panel uji coba stream berbasis web.
 
+## 📦 download/ — APK Rilis Siap Pasang
+
+**[NSL-TV-v1.0.2-release.apk](download/NSL-TV-v1.0.2-release.apk)** — build rilis (bukan debug), sudah zipalign + signed.
+Bisa juga diunduh lewat panel web: tombol **Unduh APK** di header & kartu di sidebar (`GET /api/apk`).
+
 ## 📱 android/ — Aplikasi NSL TV (v1.0.2)
 
 Native Android (Java + Media3/ExoPlayer), dibangun **tanpa Gradle** — cukup Android SDK build-tools + JDK 21.
@@ -22,7 +27,9 @@ bash build.sh
 # hasil: out/NSL-TV-v1.0.2-release.apk (sudah zipalign + signed)
 ```
 
-Kebutuhan path (sesuaikan di `build.sh`): Android SDK build-tools 34, `android-34/platform.jar`, JDK 21, r8 8.5.x.
+`build.sh` **portabel** — mendeteksi otomatis JDK (javac), `ANDROID_HOME`, build-tools 34, platform android-34,
+dan memakai `d8.jar` bawaan build-tools (tanpa perlu unduh r8 terpisah).
+Kebutuhan: Android SDK (build-tools 34 + platform android-34) dan JDK 17+.
 
 > ⚠️ **Keystore rilis tidak ikut di-push** (keamanan). `build.sh` otomatis membuat keystore baru bila `nsl-release.keystore` tidak ditemukan — simpan keystore asli di tempat aman agar bisa update dengan tanda tangan yang sama.
 
@@ -35,7 +42,8 @@ Aplikasi Next.js untuk **menguji stream TV langsung di browser**:
 - Pemutar HLS (hls.js) & DASH (dash.js) — termasuk **Widevine EME** dan **ClearKey** lokal
 - Relay `/api/stream` menulis-ulang manifest & menyuntikkan header per saluran (menembus CORS/anti-hotlink)
 - Relay `/api/license` untuk permintaan kunci Widevine
-- Tombol **Unduh APK** mengambil APK rilis terbaru
+- Tombol **Unduh APK** mengambil APK rilis terbaru (label versi & ukuran dinamis dari `GET /api/apk?info=1`)
+- Kartu unduh APK juga tersedia di **sidebar** (tetap terlihat di layar kecil)
 
 Jalankan:
 
@@ -45,7 +53,7 @@ bun install   # atau npm install
 bun run dev   # buka http://localhost:3000
 ```
 
-Endpoint panel: `GET /api/channels`, `GET /api/check`, `GET /api/stream`, `POST /api/license`, `GET /api/apk`.
+Endpoint panel: `GET /api/channels`, `GET /api/check`, `GET /api/stream`, `POST /api/license`, `GET /api/apk` (unduh, `?info=1` untuk metadata).
 
 ## Status uji (ringkas)
 
