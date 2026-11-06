@@ -43,7 +43,8 @@ object PlayerFactory {
         .build()
 
     fun createPlayer(context: Context): ExoPlayer {
-        val renderers = DefaultRenderersFactory(context)
+        val appCtx = context.applicationContext
+        val renderers = DefaultRenderersFactory(appCtx)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             .setEnableDecoderFallback(true)
 
@@ -52,20 +53,36 @@ object PlayerFactory {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-        return ExoPlayer.Builder(context, renderers)
+        return ExoPlayer.Builder(appCtx, renderers)
             .setLoadControl(loadControl)
             .build()
             .apply {
-                trackSelectionParameters = trackSelectionParameters.buildUpon()
-                    .setForceHighestSupportedBitrate(true)
-                    .build()
+                runCatching {
+                    trackSelectionParameters = trackSelectionParameters.buildUpon()
+                        .setForceHighestSupportedBitrate(true)
+                        .build()
+                }
             }
+    }
+
+    /**
+     * Pembuatan player anti-crash: coba konfigurasi lengkap → fallback player sederhana.
+     * Mengembalikan null hanya bila perangkat benar-benar tidak mampu membuat player.
+     */
+    fun createPlayerSafe(context: Context): ExoPlayer? = try {
+        createPlayer(context)
+    } catch (_: Throwable) {
+        try {
+            ExoPlayer.Builder(context.applicationContext).build()
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /** DataSource per-sumber: header saluran dijamin terkirim ke CDN. */
     private fun httpFactory(context: Context, source: Source): DefaultDataSource.Factory {
         val ok = OkHttpDataSource.Factory(http)
-            .setUserAgent(source.headers["user-agent"] ?: "NSLTV/1.0.2 (Android; ARM) Kodi/21.0")
+            .setUserAgent(source.headers["user-agent"] ?: com.nsl.tv.data.Auth.USER_AGENT)
         val extra = source.headers.filterKeys { !it.equals("user-agent", true) }
         if (extra.isNotEmpty()) ok.setDefaultRequestProperties(extra)
         return DefaultDataSource.Factory(context.applicationContext, ok)

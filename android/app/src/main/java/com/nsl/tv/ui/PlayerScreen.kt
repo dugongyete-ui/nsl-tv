@@ -33,6 +33,9 @@ import com.nsl.tv.data.Channel
 import com.nsl.tv.player.PlayerFactory
 import kotlinx.coroutines.delay
 
+private const val BUFFER_TIMEOUT_MS = 20_000L   // streaming macet > 20 dtk → pindah sumber
+private const val MAX_ROUNDS = 2                // maksimal 2 putaran penuh semua sumber
+
 @Composable
 fun PlayerScreen(
     channel: Channel,
@@ -42,11 +45,17 @@ fun PlayerScreen(
     inPip: Boolean
 ) {
     val context = LocalContext.current
-    val player = remember(channel.id) { PlayerFactory.createPlayer(context) }
+    val sources = channel.sources
+
+    // ---- Player dibuat dengan aman (anti force-close) ----
+    val player = remember(channel.id) { PlayerFactory.createPlayerSafe(context) }
+
     var sourceIndex by remember(channel.id) { mutableIntStateOf(0) }
-    var attempt by remember(channel.id) { mutableIntStateOf(0) } // memicu percobaan ulang
+    var attempt by remember(channel.id) { mutableIntStateOf(0) }      // memicu percobaan ulang
+    var rounds by remember(channel.id) { mutableIntStateOf(0) }       // penghitung putaran sumber
     var playWhenReady by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(true) }
+    var isReady by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
     var muted by remember { mutableStateOf(false) }
@@ -54,50 +63,91 @@ fun PlayerScreen(
     var qualityMode by remember { mutableStateOf("AUTO") }
     var showPlaylist by remember { mutableStateOf(false) }
 
-    val sources = channel.sources
-
-    // ---- Pasang sumber ke player ----
-    DisposableEffect(channel.id, sourceIndex, attempt) {
-        val s = sources.getOrNull(sourceIndex)
-        errorMsg = null
-        isBuffering = true
-        if (s == null) {
-            errorMsg = "Tidak ada sumber tersedia"
+    // ---- Ganti ke sumber berikutnya (fallback aman) ----
+    fun advanceSource() {
+        isReady = false
+        if (sourceIndex < sources.size - 1) {
+            sourceIndex++
+            errorMsg = null
         } else {
-            try {
-                val mediaSource = PlayerFactory.createMediaSource(context, s)
-                player.setMediaSource(mediaSource)
-                player.playWhenReady = true
-                player.prepare()
-            } catch (e: Exception) {
-                errorMsg = e.message ?: "Gagal menyiapkan sumber"
+            rounds++
+            if (rounds >= MAX_ROUNDS) {
+                errorMsg = "Semua sumber gagal diputar. Coba lagi atau pilih sumber lain."
+                isBuffering = false
+            } else {
+                sourceIndex = 0
+                attempt++ // paksa siapkan ulang dari sumber pertama
             }
         }
-        onDispose { }
     }
 
-    // ---- Listener error → fallback sumber berikutnya ----
-    DisposableEffect(player, channel.id, sourceIndex) {
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                isBuffering = playbackState == Player.STATE_BUFFERING
-                if (playbackState == Player.STATE_READY) errorMsg = null
-            }
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                playWhenReady = isPlaying
-            }
-            override fun onPlayerError(error: PlaybackException) {
-                val next = sourceIndex + 1
-                if (next < sources.size) {
-                    sourceIndex = next
-                } else {
-                    errorMsg = "Semua sumber gagal diputar"
+    // ---- Pasang sumber ke player ----
+    if (player != null) {
+        DisposableEffect(channel.id, sourceIndex, attempt) {
+            val s = sources.getOrNull(sourceIndex)
+            errorMsg = null
+            isBuffering = true
+            isReady = false
+            if (s == null) {
+                errorMsg = if (sources.isEmpty()) "Tidak ada sumber tersedia" else "Sumber tidak valid"
+                isBuffering = false
+            } else {
+                try {
+                    val mediaSource = PlayerFactory.createMediaSource(context, s)
+                    player.setMediaSource(mediaSource)
+                    player.playWhenReady = true
+                    player.prepare()
+                } catch (e: Exception) {
                     isBuffering = false
+                    advanceSource()
+                }
+            }
+            onDispose { }
+        }
+
+        // ---- Listener status player ----
+        DisposableEffect(player, channel.id) {
+            val listener = object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    isBuffering = playbackState == Player.STATE_BUFFERING
+                    when (playbackState) {
+                        Player.STATE_READY -> { isReady = true; errorMsg = null }
+                        Player.STATE_ENDED -> advanceSource()
+                        else -> {}
+                    }
+                }
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying) playWhenReady = true
+                }
+                override fun onPlayerError(error: PlaybackException) {
+                    advanceSource()
+                }
+            }
+            player.addListener(listener)
+            onDispose {
+                runCatching { player.removeListener(listener) }
+            }
+        }
+
+        // ---- Watchdog: buffering terlalu lama → pindah sumber otomatis ----
+        LaunchedEffect(channel.id, sourceIndex, attempt) {
+            delay(BUFFER_TIMEOUT_MS)
+            if (!isReady) advanceSource()
+        }
+
+        // ---- Bersihkan player saat keluar ----
+        DisposableEffect(channel.id) {
+            onDispose {
+                runCatching {
+                    player.stop()
+                    player.clearMediaItems()
+                    player.release()
                 }
             }
         }
-        player.addListener(listener)
-        onDispose { player.removeListener(listener) }
+    } else {
+        // Player gagal dibuat sama sekali → tampilkan pesan, jangan crash
+        LaunchedEffect(Unit) { errorMsg = "Perangkat tidak mendukung pemutar video" }
     }
 
     // ---- Sembunyikan kontrol otomatis ----
@@ -106,11 +156,6 @@ fun PlayerScreen(
             delay(3800)
             controlsVisible = false
         }
-    }
-
-    // ---- Bersihkan player saat keluar ----
-    DisposableEffect(channel.id) {
-        onDispose { player.release() }
     }
 
     Box(
@@ -123,28 +168,32 @@ fun PlayerScreen(
             ) { controlsVisible = !controlsVisible }
     ) {
         // ---- Permukaan video ----
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    useController = false
-                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    this.player = player
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                }
-            },
-            update = { view ->
-                view.resizeMode = when (ratioMode) {
-                    "FILL" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
-                    "ZOOM" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                    else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+        if (player != null) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        useController = false
+                        resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        this.player = player
+                    }
+                },
+                update = { view ->
+                    runCatching {
+                        view.resizeMode = when (ratioMode) {
+                            "FILL" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            "ZOOM" -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // ---- Spinner buffering ----
         if (isBuffering && errorMsg == null) {
@@ -163,7 +212,13 @@ fun PlayerScreen(
                     Spacer(Modifier.height(14.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
-                            onClick = { sourceIndex = 0; attempt++ },
+                            onClick = {
+                                rounds = 0
+                                sourceIndex = 0
+                                attempt++
+                                errorMsg = null
+                                isBuffering = true
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = Palette.Amber, contentColor = Palette.Bg),
                             shape = RoundedCornerShape(10.dp)
                         ) { Text("Coba Lagi") }
@@ -236,6 +291,7 @@ fun PlayerScreen(
                             modifier = Modifier
                                 .size(34.dp)
                                 .clickable {
+                                    rounds = 0; errorMsg = null
                                     if (sourceIndex > 0) sourceIndex-- else sourceIndex = sources.size - 1
                                 }
                         )
@@ -244,14 +300,19 @@ fun PlayerScreen(
                                 .size(64.dp)
                                 .clip(CircleShape)
                                 .background(Color.White.copy(alpha = 0.14f))
-                                .clickable { player.playWhenReady = !player.playWhenReady },
+                                .clickable {
+                                    player?.let { p ->
+                                        runCatching { p.playWhenReady = !p.playWhenReady }
+                                        playWhenReady = p.playWhenReady
+                                    }
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             if (isBuffering) {
                                 CircularProgressIndicator(color = Palette.Amber, strokeWidth = 2.5.dp, modifier = Modifier.size(26.dp))
                             } else {
                                 Icon(
-                                    if (playWhenReady && player.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    if (playWhenReady) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                     contentDescription = "Putar/Jeda",
                                     tint = Color.White,
                                     modifier = Modifier.size(34.dp)
@@ -264,6 +325,7 @@ fun PlayerScreen(
                             modifier = Modifier
                                 .size(34.dp)
                                 .clickable {
+                                    rounds = 0; errorMsg = null
                                     if (sourceIndex < sources.size - 1) sourceIndex++ else sourceIndex = 0
                                 }
                         )
@@ -286,10 +348,14 @@ fun PlayerScreen(
                         fontSize = 13.sp,
                         modifier = Modifier.clickable {
                             qualityMode = if (qualityMode == "AUTO") "MAX" else "AUTO"
-                            player.trackSelectionParameters = player.trackSelectionParameters
-                                .buildUpon()
-                                .setForceHighestSupportedBitrate(qualityMode == "MAX")
-                                .build()
+                            player?.let { p ->
+                                runCatching {
+                                    p.trackSelectionParameters = p.trackSelectionParameters
+                                        .buildUpon()
+                                        .setForceHighestSupportedBitrate(qualityMode == "MAX")
+                                        .build()
+                                }
+                            }
                         }
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -308,14 +374,17 @@ fun PlayerScreen(
                             tint = Color.White,
                             modifier = Modifier
                                 .size(22.dp)
-                                .clickable { muted = !muted; player.volume = if (muted) 0f else 1f }
+                                .clickable {
+                                    muted = !muted
+                                    player?.let { runCatching { it.volume = if (muted) 0f else 1f } }
+                                }
                         )
                         Icon(
                             Icons.Filled.Refresh, contentDescription = "Muat ulang",
                             tint = Color.White,
                             modifier = Modifier
                                 .size(22.dp)
-                                .clickable { attempt++ }
+                                .clickable { rounds = 0; attempt++ }
                         )
                         Icon(
                             Icons.Filled.List, contentDescription = "Daftar sumber",
@@ -355,7 +424,9 @@ fun PlayerScreen(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(if (i == sourceIndex) Palette.Amber.copy(alpha = 0.16f) else Color.Transparent)
-                                    .clickable { sourceIndex = i; showPlaylist = false }
+                                    .clickable {
+                                        rounds = 0; sourceIndex = i; showPlaylist = false
+                                    }
                                     .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {

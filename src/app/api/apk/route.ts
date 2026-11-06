@@ -5,7 +5,10 @@ import path from "path";
 export const dynamic = "force-dynamic";
 
 /** Kandidat lokasi APK rilis — dipakai yang berisi file terbaru. */
-const DIRS = ["/home/z/my-project/download", "/home/z/nsl-tv/out"];
+const DIRS = [
+  "/home/z/my-project/download",
+  "/home/z/my-project/android/app/build/outputs/apk/release",
+];
 
 function findLatestApk(): { file: string; full: string; stat: fs.Stats } | null {
   const candidates: { file: string; full: string; stat: fs.Stats }[] = [];
@@ -49,7 +52,7 @@ export async function GET(req: Request) {
       const m = found.file.match(/v(\d+\.\d+\.\d+)/);
       return NextResponse.json(
         {
-          version: m ? m[1] : "1.0.2",
+          version: m ? m[1] : "1.0.3",
           filename: found.file,
           size: found.stat.size,
           updatedAt: found.stat.mtime.toISOString(),

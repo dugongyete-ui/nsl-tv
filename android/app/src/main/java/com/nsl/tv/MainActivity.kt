@@ -34,6 +34,9 @@ import com.nsl.tv.data.Prefs
 import com.nsl.tv.ui.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.content.Context
+import android.content.ContextWrapper
 
 // ============================================================
 // State aplikasi
@@ -72,30 +75,42 @@ class MainActivity : ComponentActivity() {
         set(_) {}
 }
 
+/** Cari MainActivity dari context apa pun tanpa cast yang bisa crash. */
+tailrec fun Context.findMainActivity(): MainActivity? = when (this) {
+    is MainActivity -> this
+    is ContextWrapper -> baseContext?.findMainActivity()
+    else -> null
+}
+
 @Composable
-fun NslRoot(activity: MainActivity = androidx.compose.ui.platform.LocalContext.current as MainActivity) {
+fun NslRoot() {
+    val activity = androidx.compose.ui.platform.LocalContext.current.findMainActivity()
+    val appContext: Context = activity ?: androidx.compose.ui.platform.LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf<LoadState>(LoadState.Loading) }
     var tab by remember { mutableStateOf(0) }
     var search by remember { mutableStateOf("") }
     var activeCategory by remember { mutableStateOf("SEMUA") }
-    var favorites by remember { mutableStateOf(Prefs.favorites(activity)) }
+    var favorites by remember { mutableStateOf(Prefs.favorites(appContext)) }
     var playerChannel by remember { mutableStateOf<Channel?>(null) }
     var snackbar by remember { mutableStateOf<String?>(null) }
     var pipHint by remember { mutableStateOf(false) }
 
-    fun refreshFavorites() { favorites = Prefs.favorites(activity) }
+    fun refreshFavorites() { favorites = Prefs.favorites(appContext) }
 
     suspend fun load(showToast: Boolean) {
         state = LoadState.Loading
         try {
-            val r = ChannelRepository.get(activity).load(Prefs.autoRefreshOnLaunch(activity))
+            // Jaringan WAJIB di IO dispatcher — jangan pernah di main thread!
+            val r = withContext(Dispatchers.IO) {
+                ChannelRepository.get(appContext).load(Prefs.autoRefreshOnLaunch(appContext))
+            }
             state = LoadState.Ready(r.channels, r.categories, r.server?.version)
             if (showToast) snackbar = "Daftar saluran diperbarui"
-            // Auto-play saluran terakhir
-            if (playerChannel == null && Prefs.autoPlayLast(activity)) {
-                Prefs.lastPlayedChannelId(activity)?.let { lastId ->
-                    r.channels.firstOrNull { it.id == lastId }?.let { playerChannel = it }
+            // Auto-play saluran terakhir (hanya bila punya sumber)
+            if (playerChannel == null && Prefs.autoPlayLast(appContext)) {
+                Prefs.lastPlayedChannelId(appContext)?.let { lastId ->
+                    r.channels.firstOrNull { it.id == lastId && it.sources.isNotEmpty() }?.let { playerChannel = it }
                 }
             }
         } catch (e: Exception) {
@@ -122,8 +137,8 @@ fun NslRoot(activity: MainActivity = androidx.compose.ui.platform.LocalContext.c
                     channel = playerChannel!!,
                     onDismiss = { playerChannel = null },
                     onSourceChanged = { idx -> /* info sumber */ },
-                    onEnterPip = { activity.enterPip() },
-                    inPip = activity.inPip
+                    onEnterPip = { activity?.enterPip() },
+                    inPip = activity?.inPip ?: false
                 )
             } else {
                 Column(Modifier.fillMaxSize().background(Palette.Bg)) {
@@ -137,29 +152,32 @@ fun NslRoot(activity: MainActivity = androidx.compose.ui.platform.LocalContext.c
                         is LoadState.Loading -> LoadingView()
                         is LoadState.Error -> ErrorView(s.message) { scope.launch { load(false) } }
                         is LoadState.Ready -> {
-                            Row(Modifier.weight(1f)) {
-                                Column(Modifier.weight(1f)) {
-                                    when (tab) {
-                                        0 -> HomeScreen(
-                                            channels = s.channels, categories = s.categories,
-                                            activeCategory = activeCategory,
-                                            onCategory = { activeCategory = it },
-                                            search = search, favorites = favorites,
-                                            onPlay = { ch -> playerChannel = ch; Prefs.setLastPlayedChannelId(activity, ch.id) },
-                                            onToggleFav = { ch -> Prefs.toggleFavorite(activity, ch.id); refreshFavorites() }
-                                        )
-                                        1 -> EventsScreen(channels = s.channels, onPlay = { ch -> playerChannel = ch; Prefs.setLastPlayedChannelId(activity, ch.id) })
-                                        2 -> FavoritesScreen(
-                                            channels = s.channels, favorites = favorites,
-                                            onPlay = { ch -> playerChannel = ch; Prefs.setLastPlayedChannelId(activity, ch.id) },
-                                            onToggleFav = { ch -> Prefs.toggleFavorite(activity, ch.id); refreshFavorites() }
-                                        )
-                                        else -> SettingsScreen(
-                                            serverVersion = s.serverVersion,
-                                            onRefresh = { scope.launch { load(true) } },
-                                            onClearFav = { Prefs.clearFavorites(activity); refreshFavorites(); snackbar = "Semua favorit dihapus" },
-                                            snackbar = { snackbar = it }
-                                        )
+                            val act = activity
+                            if (act != null) {
+                                Row(Modifier.weight(1f)) {
+                                    Column(Modifier.weight(1f)) {
+                                        when (tab) {
+                                            0 -> HomeScreen(
+                                                channels = s.channels, categories = s.categories,
+                                                activeCategory = activeCategory,
+                                                onCategory = { activeCategory = it },
+                                                search = search, favorites = favorites,
+                                                onPlay = { ch -> if (ch.sources.isNotEmpty()) { playerChannel = ch; Prefs.setLastPlayedChannelId(act, ch.id) } else snackbar = "Saluran tanpa sumber" },
+                                                onToggleFav = { ch -> Prefs.toggleFavorite(act, ch.id); refreshFavorites() }
+                                            )
+                                            1 -> EventsScreen(channels = s.channels, onPlay = { ch -> if (ch.sources.isNotEmpty()) { playerChannel = ch; Prefs.setLastPlayedChannelId(act, ch.id) } else snackbar = "Saluran tanpa sumber" })
+                                            2 -> FavoritesScreen(
+                                                channels = s.channels, favorites = favorites,
+                                                onPlay = { ch -> if (ch.sources.isNotEmpty()) { playerChannel = ch; Prefs.setLastPlayedChannelId(act, ch.id) } else snackbar = "Saluran tanpa sumber" },
+                                                onToggleFav = { ch -> Prefs.toggleFavorite(act, ch.id); refreshFavorites() }
+                                            )
+                                            else -> SettingsScreen(
+                                                serverVersion = s.serverVersion,
+                                                onRefresh = { scope.launch { load(true) } },
+                                                onClearFav = { Prefs.clearFavorites(act); refreshFavorites(); snackbar = "Semua favorit dihapus" },
+                                                snackbar = { snackbar = it }
+                                            )
+                                        }
                                     }
                                 }
                             }

@@ -52,3 +52,11 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Android build artifacts
+android/.gradle/
+android/.kotlin/
+android/app/build/
+android/build/
+android/local.properties
+android/build-release.log
+*.apk.idsig

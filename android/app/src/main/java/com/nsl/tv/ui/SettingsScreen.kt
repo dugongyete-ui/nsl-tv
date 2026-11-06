@@ -115,7 +115,7 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "NSL TV v1.0.2" + (serverVersion?.let { "  •  Server $it" } ?: ""),
+            "NSL TV v${com.nsl.tv.data.Auth.APP_VERSION}" + (serverVersion?.let { "  •  Server $it" } ?: ""),
             color = Palette.TextDim,
             fontSize = 12.sp,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp)
